@@ -739,6 +739,9 @@ with tab1:
                 image_position = st.selectbox("Image Position", ["Right Side", "Left Side", "Top Right Corner", "Bottom", "Center"])
             with col2_2:
                 image_style = st.selectbox("Image Style", ["Professional", "Minimalist", "Colorful", "Corporate", "Creative", "Infographic"])
+        else:
+            image_position = "Right Side"
+            image_style = "Professional"
 
     st.subheader("➕ Additional Points (Optional)")
     key_points = st.text_area("Key points to cover", placeholder="- Point 1\n- Point 2", height=80)
@@ -783,7 +786,7 @@ with tab1:
                     
                     st.success("✅ Content generated!")
                     
-                    # Presentation Statistics
+                    # Presentation Statistics - FIXED VERSION
                     st.markdown("---")
                     st.subheader("📊 Presentation Statistics")
                     col_stat1, col_stat2, col_stat3, col_stat4 = st.columns(4)
@@ -792,11 +795,20 @@ with tab1:
                         st.metric("Total Slides", len(slides_content))
                     
                     with col_stat2:
-                        total_words = sum(len(' '.join(s.get('bullets', []))).split() for s in slides_content)
+                        # Calculate total words safely - FIXED
+                        total_words = 0
+                        for s in slides_content:
+                            bullets = s.get('bullets', [])
+                            if bullets and isinstance(bullets, list):
+                                for bullet in bullets:
+                                    if isinstance(bullet, str):
+                                        total_words += len(bullet.split())
                         st.metric("Total Words", total_words)
                     
                     with col_stat3:
-                        avg_bullets = sum(len(s.get('bullets', [])) for s in slides_content) / len(slides_content)
+                        # Calculate average bullets per slide safely - FIXED
+                        bullet_counts = [len(s.get('bullets', [])) for s in slides_content if isinstance(s.get('bullets', []), list)]
+                        avg_bullets = sum(bullet_counts) / len(bullet_counts) if bullet_counts else 0
                         st.metric("Avg Bullets/Slide", f"{avg_bullets:.1f}")
                     
                     with col_stat4:
@@ -912,8 +924,8 @@ with tab1:
                                 slides_content, theme, image_mode, 
                                 stability_api_key, pexels_api_key,
                                 category, audience, topic, 
-                                image_position if image_mode != "None" else "Right Side",
-                                image_style if image_mode == "AI Generated (Paid)" else "Professional",
+                                image_position,
+                                image_style,
                                 logo_data
                             )
                             
