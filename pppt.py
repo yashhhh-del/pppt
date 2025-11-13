@@ -30,6 +30,7 @@ if 'generation_count' not in st.session_state:
     st.session_state.total_slides = 0
     st.session_state.slides_content = None
     st.session_state.edited_slides = None
+    st.session_state.final_pptx = None
 
 # Custom CSS
 st.markdown("""
@@ -54,6 +55,13 @@ st.markdown("""
         padding: 1rem;
         border-radius: 10px;
         color: white;
+        text-align: center;
+    }
+    .download-section {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 2rem;
+        border-radius: 15px;
+        margin: 2rem 0;
         text-align: center;
     }
 </style>
@@ -126,8 +134,7 @@ with st.sidebar:
     2. **Optional:** Add Pexels key for better images
     3. Enter your presentation topic
     4. Click Generate!
-    5. Edit slides if needed
-    6. Download in your format!
+    5. Download immediately or edit first!
     """)
     st.markdown("---")
     st.markdown("### 🔗 Get API Keys")
@@ -753,9 +760,9 @@ with tab1:
     
     col_btn1, col_btn2 = st.columns([3, 1])
     with col_btn1:
-        generate_button = st.button("🚀 Generate PowerPoint", use_container_width=True)
+        generate_button = st.button("🚀 Generate PowerPoint", use_container_width=True, type="primary")
     with col_btn2:
-        save_template_btn = st.button("💾 Save as Template", use_container_width=True)
+        save_template_btn = st.button("💾 Save Template", use_container_width=True)
 
     if save_template_btn:
         template_json = save_template(category, slide_count, tone, audience, theme, image_mode, language)
@@ -784,10 +791,85 @@ with tab1:
                     st.session_state.generation_count += 1
                     st.session_state.total_slides += len(slides_content)
                     
-                    st.success("✅ Content generated!")
+                    st.success("✅ Content generated! Creating presentation with images...")
                     
-                    # Presentation Statistics - FIXED VERSION
+                    # AUTO-CREATE POWERPOINT IMMEDIATELY
+                    prs = create_powerpoint(
+                        slides_content, theme, image_mode, 
+                        stability_api_key, pexels_api_key,
+                        category, audience, topic, 
+                        image_position,
+                        image_style,
+                        logo_data
+                    )
+                    
+                    # Save to session state
+                    pptx_io = io.BytesIO()
+                    prs.save(pptx_io)
+                    pptx_io.seek(0)
+                    st.session_state.final_pptx = pptx_io.getvalue()
+                    
+                    st.success("🎉 PowerPoint ready!")
+                    
+                    # ============ IMMEDIATE DOWNLOAD SECTION ============
                     st.markdown("---")
+                    st.markdown('<div class="download-section">', unsafe_allow_html=True)
+                    st.markdown("### 🎉 Your Presentation is Ready!")
+                    
+                    if export_format == "PowerPoint (.pptx)":
+                        col_dl = st.columns([1, 2, 1])
+                        with col_dl[1]:
+                            st.download_button(
+                                label="📥 DOWNLOAD POWERPOINT NOW",
+                                data=st.session_state.final_pptx,
+                                file_name=f"{topic.replace(' ', '_')}.pptx",
+                                mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                                use_container_width=True,
+                                type="primary"
+                            )
+                    
+                    elif export_format == "PowerPoint + PDF":
+                        col_dl1, col_dl2 = st.columns(2)
+                        
+                        with col_dl1:
+                            st.download_button(
+                                label="📥 Download PowerPoint",
+                                data=st.session_state.final_pptx,
+                                file_name=f"{topic.replace(' ', '_')}.pptx",
+                                mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                                use_container_width=True,
+                                type="primary"
+                            )
+                        
+                        with col_dl2:
+                            pdf_buffer = export_to_pdf(slides_content, topic)
+                            st.download_button(
+                                label="📄 Download PDF",
+                                data=pdf_buffer,
+                                file_name=f"{topic.replace(' ', '_')}.pdf",
+                                mime="application/pdf",
+                                use_container_width=True,
+                                type="primary"
+                            )
+                    
+                    elif export_format == "Google Slides (JSON)":
+                        google_json = export_to_google_slides_json(slides_content, topic, theme)
+                        col_dl = st.columns([1, 2, 1])
+                        with col_dl[1]:
+                            st.download_button(
+                                label="📥 Download Google Slides JSON",
+                                data=google_json,
+                                file_name=f"{topic.replace(' ', '_')}_google_slides.json",
+                                mime="application/json",
+                                use_container_width=True,
+                                type="primary"
+                            )
+                        st.info("💡 Import this JSON into Google Slides using Apps Script")
+                    
+                    st.markdown('</div>', unsafe_allow_html=True)
+                    st.markdown("---")
+                    
+                    # Presentation Statistics
                     st.subheader("📊 Presentation Statistics")
                     col_stat1, col_stat2, col_stat3, col_stat4 = st.columns(4)
                     
@@ -795,7 +877,6 @@ with tab1:
                         st.metric("Total Slides", len(slides_content))
                     
                     with col_stat2:
-                        # Calculate total words safely - FIXED
                         total_words = 0
                         for s in slides_content:
                             bullets = s.get('bullets', [])
@@ -806,7 +887,6 @@ with tab1:
                         st.metric("Total Words", total_words)
                     
                     with col_stat3:
-                        # Calculate average bullets per slide safely - FIXED
                         bullet_counts = [len(s.get('bullets', [])) for s in slides_content if isinstance(s.get('bullets', []), list)]
                         avg_bullets = sum(bullet_counts) / len(bullet_counts) if bullet_counts else 0
                         st.metric("Avg Bullets/Slide", f"{avg_bullets:.1f}")
@@ -817,7 +897,7 @@ with tab1:
                     
                     # AI Presentation Coach
                     st.markdown("---")
-                    with st.expander("🎓 AI Presentation Coach", expanded=True):
+                    with st.expander("🎓 AI Presentation Coach", expanded=False):
                         issues, suggestions, score = analyze_presentation(slides_content)
                         
                         col_score1, col_score2 = st.columns([1, 3])
@@ -843,15 +923,49 @@ with tab1:
                             for suggestion in suggestions:
                                 st.write(f"- {suggestion}")
                     
-                    # Edit Slides Section
+                    # Preview Slides
                     st.markdown("---")
-                    st.subheader("✏️ Review & Edit Slides")
-                    enable_edit = st.checkbox("Enable slide editing")
+                    with st.expander("👀 Slide Previews", expanded=False):
+                        themes_for_preview = {
+                            "Corporate Blue": {"bg": (240, 248, 255), "accent": (31, 119, 180), "text": (0, 0, 0)},
+                            "Gradient Modern": {"bg": (240, 242, 246), "accent": (138, 43, 226), "text": (0, 0, 0)},
+                            "Minimal Dark": {"bg": (30, 30, 30), "accent": (255, 215, 0), "text": (255, 255, 255)},
+                            "Pastel Soft": {"bg": (255, 250, 240), "accent": (255, 182, 193), "text": (60, 60, 60)},
+                            "Professional Green": {"bg": (245, 255, 250), "accent": (34, 139, 34), "text": (0, 0, 0)},
+                            "Elegant Purple": {"bg": (250, 245, 255), "accent": (128, 0, 128), "text": (0, 0, 0)}
+                        }
+                        
+                        theme_colors = themes_for_preview.get(theme, themes_for_preview["Corporate Blue"])
+                        
+                        preview_cols = st.columns(3)
+                        for i, slide in enumerate(slides_content[:6]):
+                            with preview_cols[i % 3]:
+                                preview_img = generate_slide_preview(slide, theme_colors)
+                                st.image(preview_img, caption=f"Slide {i+1}", use_container_width=True)
+                        
+                        if len(slides_content) > 6:
+                            st.info(f"Showing first 6 of {len(slides_content)} slides")
                     
-                    if enable_edit:
+                    # Content Preview
+                    with st.expander("📄 Full Content Preview", expanded=False):
+                        for i, slide in enumerate(slides_content):
+                            st.markdown(f"### Slide {i+1}: {slide['title']}")
+                            if slide.get('bullets'):
+                                for bullet in slide['bullets']:
+                                    st.write(f"- {bullet}")
+                            if slide.get('speaker_notes'):
+                                st.caption(f"📝 Notes: {slide['speaker_notes']}")
+                            if slide.get('image_prompt'):
+                                st.caption(f"🖼️ Image: {slide['image_prompt']}")
+                            st.markdown("---")
+                    
+                    # Edit option
+                    st.markdown("---")
+                    with st.expander("✏️ Want to Edit? Click Here", expanded=False):
+                        st.info("💡 Edit your slides and regenerate the presentation")
                         edited_slides = []
                         for i, slide in enumerate(slides_content):
-                            with st.expander(f"Slide {i+1}: {slide['title']}", expanded=False):
+                            with st.expander(f"Edit Slide {i+1}: {slide['title']}", expanded=False):
                                 new_title = st.text_input(f"Title", slide['title'], key=f"edit_title_{i}")
                                 new_bullets = st.text_area(
                                     f"Content (one per line)", 
@@ -872,115 +986,29 @@ with tab1:
                                     "speaker_notes": new_notes
                                 })
                         
-                        if st.button("✅ Apply Edits"):
-                            st.session_state.slides_content = edited_slides
-                            slides_content = edited_slides
-                            st.success("✅ Edits applied!")
-                            st.rerun()
-                    
-                    # Preview Slides
-                    st.markdown("---")
-                    st.subheader("👀 Slide Previews")
-                    
-                    themes_for_preview = {
-                        "Corporate Blue": {"bg": (240, 248, 255), "accent": (31, 119, 180), "text": (0, 0, 0)},
-                        "Gradient Modern": {"bg": (240, 242, 246), "accent": (138, 43, 226), "text": (0, 0, 0)},
-                        "Minimal Dark": {"bg": (30, 30, 30), "accent": (255, 215, 0), "text": (255, 255, 255)},
-                        "Pastel Soft": {"bg": (255, 250, 240), "accent": (255, 182, 193), "text": (60, 60, 60)},
-                        "Professional Green": {"bg": (245, 255, 250), "accent": (34, 139, 34), "text": (0, 0, 0)},
-                        "Elegant Purple": {"bg": (250, 245, 255), "accent": (128, 0, 128), "text": (0, 0, 0)}
-                    }
-                    
-                    theme_colors = themes_for_preview.get(theme, themes_for_preview["Corporate Blue"])
-                    
-                    preview_cols = st.columns(3)
-                    for i, slide in enumerate(slides_content[:6]):
-                        with preview_cols[i % 3]:
-                            preview_img = generate_slide_preview(slide, theme_colors)
-                            st.image(preview_img, caption=f"Slide {i+1}", use_container_width=True)
-                    
-                    if len(slides_content) > 6:
-                        st.info(f"Showing first 6 of {len(slides_content)} slides")
-                    
-                    # Content Preview
-                    st.markdown("---")
-                    with st.expander("📄 Full Content Preview"):
-                        for i, slide in enumerate(slides_content):
-                            st.markdown(f"### Slide {i+1}: {slide['title']}")
-                            if slide.get('bullets'):
-                                for bullet in slide['bullets']:
-                                    st.write(f"- {bullet}")
-                            if slide.get('speaker_notes'):
-                                st.caption(f"📝 Notes: {slide['speaker_notes']}")
-                            if slide.get('image_prompt'):
-                                st.caption(f"🖼️ Image: {slide['image_prompt']}")
-                            st.markdown("---")
-                    
-                    # Generate Final Presentation
-                    st.markdown("---")
-                    if st.button("🎨 Create Final Presentation", use_container_width=True):
-                        with st.spinner("Creating your presentation with images..."):
-                            prs = create_powerpoint(
-                                slides_content, theme, image_mode, 
-                                stability_api_key, pexels_api_key,
-                                category, audience, topic, 
-                                image_position,
-                                image_style,
-                                logo_data
-                            )
-                            
-                            st.success("🎉 PowerPoint ready!")
-                            
-                            # Export based on format
-                            if export_format == "PowerPoint (.pptx)":
-                                pptx_io = io.BytesIO()
-                                prs.save(pptx_io)
-                                pptx_io.seek(0)
+                        if st.button("🔄 Regenerate with Edits", use_container_width=True):
+                            with st.spinner("Regenerating presentation..."):
+                                prs_new = create_powerpoint(
+                                    edited_slides, theme, image_mode, 
+                                    stability_api_key, pexels_api_key,
+                                    category, audience, topic, 
+                                    image_position,
+                                    image_style,
+                                    logo_data
+                                )
                                 
+                                pptx_io_new = io.BytesIO()
+                                prs_new.save(pptx_io_new)
+                                pptx_io_new.seek(0)
+                                
+                                st.success("✅ Regenerated!")
                                 st.download_button(
-                                    label="📥 Download PowerPoint",
-                                    data=pptx_io,
-                                    file_name=f"{topic.replace(' ', '_')}.pptx",
+                                    label="📥 Download Updated PowerPoint",
+                                    data=pptx_io_new,
+                                    file_name=f"{topic.replace(' ', '_')}_edited.pptx",
                                     mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
                                     use_container_width=True
                                 )
-                            
-                            elif export_format == "PowerPoint + PDF":
-                                col_dl1, col_dl2 = st.columns(2)
-                                
-                                with col_dl1:
-                                    pptx_io = io.BytesIO()
-                                    prs.save(pptx_io)
-                                    pptx_io.seek(0)
-                                    
-                                    st.download_button(
-                                        label="📥 Download PowerPoint",
-                                        data=pptx_io,
-                                        file_name=f"{topic.replace(' ', '_')}.pptx",
-                                        mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                                        use_container_width=True
-                                    )
-                                
-                                with col_dl2:
-                                    pdf_buffer = export_to_pdf(slides_content, topic)
-                                    st.download_button(
-                                        label="📄 Download PDF",
-                                        data=pdf_buffer,
-                                        file_name=f"{topic.replace(' ', '_')}.pdf",
-                                        mime="application/pdf",
-                                        use_container_width=True
-                                    )
-                            
-                            elif export_format == "Google Slides (JSON)":
-                                google_json = export_to_google_slides_json(slides_content, topic, theme)
-                                st.download_button(
-                                    label="📥 Download Google Slides JSON",
-                                    data=google_json,
-                                    file_name=f"{topic.replace(' ', '_')}_google_slides.json",
-                                    mime="application/json",
-                                    use_container_width=True
-                                )
-                                st.info("💡 Import this JSON into Google Slides using Apps Script")
 
 with tab2:
     st.subheader("📊 Bulk Presentation Generation")
@@ -1011,7 +1039,7 @@ with tab2:
             st.success(f"✅ Loaded {len(df)} topics")
             st.dataframe(df)
             
-            if st.button("🚀 Generate All Presentations"):
+            if st.button("🚀 Generate All Presentations", type="primary"):
                 if not claude_api_key:
                     st.error("⚠️ Enter OpenRouter API key in sidebar")
                 else:
@@ -1027,16 +1055,16 @@ with tab2:
                                 row['topic'], 
                                 row.get('category', 'Business'),
                                 int(row.get('slide_count', 6)),
-                                tone,
+                                tone if 'tone' in locals() else "Formal",
                                 row.get('audience', 'Corporate'),
                                 "",
                                 model_choice,
-                                language
+                                language if 'language' in locals() else "English"
                             )
                             
                             if slides:
                                 prs = create_powerpoint(
-                                    slides, theme, "None", 
+                                    slides, theme if 'theme' in locals() else "Corporate Blue", "None", 
                                     None, None,
                                     row.get('category', 'Business'),
                                     row.get('audience', 'Corporate'),
@@ -1060,7 +1088,8 @@ with tab2:
                             zip_buffer.getvalue(),
                             "presentations_bulk.zip",
                             "application/zip",
-                            use_container_width=True
+                            use_container_width=True,
+                            type="primary"
                         )
         except Exception as e:
             st.error(f"Error processing CSV: {str(e)}")
@@ -1111,7 +1140,7 @@ st.markdown("---")
 st.markdown("""
 <div style='text-align: center; color: #666;'>
     <p>🎯 <strong>AI PowerPoint Generator Pro v2.0</strong></p>
-    <p>✨ With Multi-Language | AI Coach | Bulk Generation | Templates & More!</p>
+    <p>✨ With Auto-Download | Multi-Language | AI Coach | Bulk Generation & More!</p>
     <p>🆓 <strong>Get Pexels API</strong> (free) for best results: <a href="https://www.pexels.com/api/">pexels.com/api</a></p>
 </div>
 """, unsafe_allow_html=True)
