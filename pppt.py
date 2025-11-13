@@ -94,18 +94,57 @@ with st.sidebar:
     
     st.info("💡 Using OpenRouter API")
     
-    # Pexels API (Optional but recommended)
-    pexels_api_key = st.text_input(
-        "Pexels API Key (Optional)", 
-        type="password",
-        help="FREE! Get better topic-relevant images. Sign up at: https://www.pexels.com/api/"
+    st.markdown("---")
+    
+    # Image API Selection
+    st.subheader("🖼️ Image Sources")
+    
+    image_api_choice = st.selectbox(
+        "Choose Image API",
+        [
+            "RapidAPI (Pexels)",
+            "RapidAPI (Unsplash)", 
+            "RapidAPI (Pixabay)",
+            "Direct Pexels API",
+            "Direct Unsplash (Free)",
+            "Stability AI (Paid)"
+        ]
     )
     
-    if pexels_api_key:
-        st.success("✅ Pexels connected - will search for topic-specific images!")
+    # RapidAPI Key (for all RapidAPI services)
+    if "RapidAPI" in image_api_choice:
+        rapidapi_key = st.text_input(
+            "RapidAPI Key *", 
+            type="password",
+            help="Required for RapidAPI services. Get it at: https://rapidapi.com/"
+        )
+        
+        if rapidapi_key:
+            st.success("✅ RapidAPI key connected!")
+        
+        st.info("💡 One RapidAPI key works for Pexels, Unsplash & Pixabay!")
     
-    stability_api_key = st.text_input("Stability AI API Key (Optional)", type="password", 
-                                      help="Optional: For AI-generated images")
+    # Direct API Keys
+    if image_api_choice == "Direct Pexels API":
+        pexels_api_key = st.text_input(
+            "Pexels API Key", 
+            type="password",
+            help="FREE! Get it at: https://www.pexels.com/api/"
+        )
+        rapidapi_key = None
+    elif image_api_choice == "Stability AI (Paid)":
+        stability_api_key = st.text_input(
+            "Stability AI API Key", 
+            type="password",
+            help="Get it at: https://platform.stability.ai"
+        )
+        rapidapi_key = None
+        pexels_api_key = None
+    else:
+        pexels_api_key = None
+        stability_api_key = None
+        if "RapidAPI" not in image_api_choice:
+            rapidapi_key = None
     
     st.markdown("---")
     
@@ -131,13 +170,14 @@ with st.sidebar:
     st.markdown("### 📖 How to Use")
     st.markdown("""
     1. Enter OpenRouter API key
-    2. **Optional:** Add Pexels key for better images
+    2. **Choose image source** (RapidAPI recommended)
     3. Enter your presentation topic
     4. Click Generate!
-    5. Download immediately or edit first!
+    5. Download immediately!
     """)
     st.markdown("---")
     st.markdown("### 🔗 Get API Keys")
+    st.markdown("🔥 [RapidAPI Hub](https://rapidapi.com/hub)")
     st.markdown("🆓 [Pexels API (FREE)](https://www.pexels.com/api/)")
     st.markdown("[OpenRouter API](https://openrouter.ai/keys)")
     st.markdown("[Stability AI](https://platform.stability.ai)")
@@ -175,8 +215,110 @@ def generate_topic_search_terms(main_topic, slide_title, image_prompt):
     
     return unique
 
+# ============ RAPIDAPI IMAGE FUNCTIONS ============
+
+def get_rapidapi_pexels_image(query, api_key):
+    """Get image from Pexels via RapidAPI"""
+    try:
+        url = "https://pexels-api.p.rapidapi.com/search"
+        
+        headers = {
+            "x-rapidapi-key": api_key,
+            "x-rapidapi-host": "pexels-api.p.rapidapi.com"
+        }
+        
+        params = {
+            "query": query,
+            "per_page": "3",
+            "page": "1",
+            "orientation": "landscape"
+        }
+        
+        response = requests.get(url, headers=headers, params=params, timeout=10)
+        
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("photos") and len(data["photos"]) > 0:
+                photo = data["photos"][0]
+                img_url = photo["src"]["large"]
+                
+                img_response = requests.get(img_url, timeout=10)
+                if img_response.status_code == 200:
+                    return img_response.content
+        return None
+    except Exception as e:
+        st.write(f"      ⚠️ RapidAPI Pexels error: {str(e)}")
+        return None
+
+def get_rapidapi_unsplash_image(query, api_key):
+    """Get image from Unsplash via RapidAPI"""
+    try:
+        url = "https://unsplash-api-zhpy.p.rapidapi.com/search/photos"
+        
+        headers = {
+            "x-rapidapi-key": api_key,
+            "x-rapidapi-host": "unsplash-api-zhpy.p.rapidapi.com"
+        }
+        
+        params = {
+            "query": query,
+            "per_page": "3",
+            "orientation": "landscape"
+        }
+        
+        response = requests.get(url, headers=headers, params=params, timeout=10)
+        
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("results") and len(data["results"]) > 0:
+                photo = data["results"][0]
+                img_url = photo["urls"]["regular"]
+                
+                img_response = requests.get(img_url, timeout=10)
+                if img_response.status_code == 200:
+                    return img_response.content
+        return None
+    except Exception as e:
+        st.write(f"      ⚠️ RapidAPI Unsplash error: {str(e)}")
+        return None
+
+def get_rapidapi_pixabay_image(query, api_key):
+    """Get image from Pixabay via RapidAPI"""
+    try:
+        url = "https://pixabay-api.p.rapidapi.com/search"
+        
+        headers = {
+            "x-rapidapi-key": api_key,
+            "x-rapidapi-host": "pixabay-api.p.rapidapi.com"
+        }
+        
+        params = {
+            "q": query,
+            "per_page": "3",
+            "image_type": "photo",
+            "orientation": "horizontal"
+        }
+        
+        response = requests.get(url, headers=headers, params=params, timeout=10)
+        
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("hits") and len(data["hits"]) > 0:
+                photo = data["hits"][0]
+                img_url = photo["largeImageURL"]
+                
+                img_response = requests.get(img_url, timeout=10)
+                if img_response.status_code == 200:
+                    return img_response.content
+        return None
+    except Exception as e:
+        st.write(f"      ⚠️ RapidAPI Pixabay error: {str(e)}")
+        return None
+
+# ============ DIRECT API IMAGE FUNCTIONS ============
+
 def get_unsplash_image(query, width=800, height=600):
-    """Get image from Unsplash"""
+    """Get image from Unsplash Direct (Free)"""
     try:
         clean_query = query.strip().replace(' ', ',')
         url = f"https://source.unsplash.com/{width}x{height}/?{clean_query}"
@@ -200,7 +342,7 @@ def get_unsplash_image(query, width=800, height=600):
         return None
 
 def get_pexels_image(query, api_key):
-    """Get image from Pexels API"""
+    """Get image from Pexels Direct API"""
     if not api_key:
         return None
     
@@ -227,43 +369,6 @@ def get_pexels_image(query, api_key):
         return None
     except:
         return None
-
-def get_topic_relevant_image(main_topic, slide_title, image_prompt, pexels_key=None):
-    """Get highly relevant image for the topic"""
-    
-    st.write(f"   🎯 Topic: {main_topic}")
-    st.write(f"   📄 Slide: {slide_title}")
-    
-    # Generate search terms
-    search_terms = generate_topic_search_terms(main_topic, slide_title, image_prompt)
-    st.write(f"   🔍 Will try {len(search_terms)} search variations")
-    
-    # Try each search term
-    for i, term in enumerate(search_terms, 1):
-        st.write(f"      → Search {i}: '{term}'")
-        
-        # Try Pexels first if available
-        if pexels_key:
-            image_data = get_pexels_image(term, pexels_key)
-            if image_data:
-                st.write(f"      ✅ Found on Pexels!")
-                return image_data
-        
-        # Try Unsplash
-        image_data = get_unsplash_image(term)
-        if image_data:
-            st.write(f"      ✅ Found on Unsplash!")
-            return image_data
-    
-    # Fallback to generic topic
-    st.write(f"   🆘 Trying generic fallback...")
-    fallback = main_topic.split()[0] if main_topic else "business"
-    image_data = get_unsplash_image(fallback)
-    if image_data:
-        st.write(f"      ✅ Got fallback image")
-        return image_data
-    
-    return None
 
 def generate_image_stability(api_key, prompt, image_style):
     """Generate AI image using Stability AI"""
@@ -299,6 +404,69 @@ def generate_image_stability(api_key, prompt, image_style):
         return None
     except:
         return None
+
+# ============ UNIFIED IMAGE RETRIEVAL ============
+
+def get_topic_relevant_image(main_topic, slide_title, image_prompt, image_api_choice, rapidapi_key=None, pexels_key=None, stability_key=None, image_style="Professional"):
+    """Get highly relevant image based on selected API"""
+    
+    st.write(f"   🎯 Topic: {main_topic}")
+    st.write(f"   📄 Slide: {slide_title}")
+    st.write(f"   🔧 Using: {image_api_choice}")
+    
+    # Generate search terms
+    search_terms = generate_topic_search_terms(main_topic, slide_title, image_prompt)
+    st.write(f"   🔍 Will try {len(search_terms)} search variations")
+    
+    # Try each search term
+    for i, term in enumerate(search_terms, 1):
+        st.write(f"      → Search {i}: '{term}'")
+        
+        image_data = None
+        
+        # Route to appropriate API
+        if image_api_choice == "RapidAPI (Pexels)" and rapidapi_key:
+            image_data = get_rapidapi_pexels_image(term, rapidapi_key)
+        
+        elif image_api_choice == "RapidAPI (Unsplash)" and rapidapi_key:
+            image_data = get_rapidapi_unsplash_image(term, rapidapi_key)
+        
+        elif image_api_choice == "RapidAPI (Pixabay)" and rapidapi_key:
+            image_data = get_rapidapi_pixabay_image(term, rapidapi_key)
+        
+        elif image_api_choice == "Direct Pexels API" and pexels_key:
+            image_data = get_pexels_image(term, pexels_key)
+        
+        elif image_api_choice == "Direct Unsplash (Free)":
+            image_data = get_unsplash_image(term)
+        
+        elif image_api_choice == "Stability AI (Paid)" and stability_key:
+            st.write("      🤖 Generating AI image...")
+            image_data = generate_image_stability(stability_key, term, image_style)
+        
+        if image_data:
+            st.write(f"      ✅ Found image!")
+            return image_data
+    
+    # Fallback to generic topic
+    st.write(f"   🆘 Trying generic fallback...")
+    fallback = main_topic.split()[0] if main_topic else "business"
+    
+    if image_api_choice == "Direct Unsplash (Free)":
+        image_data = get_unsplash_image(fallback)
+    elif rapidapi_key and "RapidAPI" in image_api_choice:
+        if "Pexels" in image_api_choice:
+            image_data = get_rapidapi_pexels_image(fallback, rapidapi_key)
+        elif "Unsplash" in image_api_choice:
+            image_data = get_rapidapi_unsplash_image(fallback, rapidapi_key)
+        elif "Pixabay" in image_api_choice:
+            image_data = get_rapidapi_pixabay_image(fallback, rapidapi_key)
+    
+    if image_data:
+        st.write(f"      ✅ Got fallback image")
+        return image_data
+    
+    return None
 
 # ============ CONTENT GENERATION ============
 
@@ -549,7 +717,7 @@ def export_to_google_slides_json(slides_content, topic, theme):
 
 # ============ POWERPOINT CREATION ============
 
-def create_powerpoint(slides_content, theme, image_mode, stability_key, pexels_key, category, audience, topic, image_position, image_style, logo_data):
+def create_powerpoint(slides_content, theme, image_mode, image_api_choice, rapidapi_key, pexels_key, stability_key, category, audience, topic, image_position, image_style, logo_data):
     """Create PowerPoint presentation"""
     prs = Presentation()
     prs.slide_width = Inches(10)
@@ -615,7 +783,7 @@ def create_powerpoint(slides_content, theme, image_mode, stability_key, pexels_k
         
         # Bullets
         if idx > 0 and slide_data.get("bullets"):
-            bullet_width = Inches(5.5) if image_mode != "None" and image_position == "Right Side" else Inches(9)
+            bullet_width = Inches(5.5) if image_mode == "With Images" and image_position == "Right Side" else Inches(9)
             bullet_box = slide.shapes.add_textbox(Inches(0.5), Inches(2), bullet_width, Inches(4.5))
             text_frame = bullet_box.text_frame
             text_frame.word_wrap = True
@@ -643,23 +811,20 @@ def create_powerpoint(slides_content, theme, image_mode, stability_key, pexels_k
             notes_slide.notes_text_frame.text = slide_data["speaker_notes"]
         
         # Add images to content slides
-        if idx > 0 and image_mode != "None":
+        if idx > 0 and image_mode == "With Images":
             with st.expander(f"🖼️ Slide {idx + 1}: {slide_data['title']}", expanded=False):
                 image_prompt = slide_data.get("image_prompt", "")
-                image_data = None
                 
-                if image_mode == "AI Generated (Paid)" and stability_key:
-                    st.write("   🤖 Generating AI image...")
-                    image_data = generate_image_stability(stability_key, image_prompt, image_style)
-                
-                if not image_data and image_mode != "None":
-                    st.write("   🔍 Searching for topic-relevant image...")
-                    image_data = get_topic_relevant_image(
-                        main_topic=topic,
-                        slide_title=slide_data["title"],
-                        image_prompt=image_prompt,
-                        pexels_key=pexels_key
-                    )
+                image_data = get_topic_relevant_image(
+                    main_topic=topic,
+                    slide_title=slide_data["title"],
+                    image_prompt=image_prompt,
+                    image_api_choice=image_api_choice,
+                    rapidapi_key=rapidapi_key,
+                    pexels_key=pexels_key,
+                    stability_key=stability_key,
+                    image_style=image_style
+                )
                 
                 if image_data:
                     try:
@@ -736,11 +901,11 @@ with tab1:
         
         image_mode = st.selectbox(
             "Image Mode *",
-            ["Free Images (Auto)", "AI Generated (Paid)", "None"],
-            help="Auto: Uses Unsplash/Pexels for topic-relevant free images"
+            ["With Images", "No Images"],
+            help="Add topic-relevant images to slides"
         )
         
-        if image_mode != "None":
+        if image_mode == "With Images":
             col2_1, col2_2 = st.columns(2)
             with col2_1:
                 image_position = st.selectbox("Image Position", ["Right Side", "Left Side", "Top Right Corner", "Bottom", "Center"])
@@ -779,6 +944,8 @@ with tab1:
             st.error("⚠️ Enter OpenRouter API key in sidebar")
         elif not topic:
             st.error("⚠️ Enter a topic")
+        elif image_mode == "With Images" and "RapidAPI" in image_api_choice and not rapidapi_key:
+            st.error("⚠️ Enter RapidAPI key in sidebar for images")
         else:
             with st.spinner("🤖 Generating your presentation..."):
                 slides_content = generate_content_with_retry(
@@ -793,10 +960,18 @@ with tab1:
                     
                     st.success("✅ Content generated! Creating presentation with images...")
                     
+                    # Get API keys based on selection
+                    rapid_key = rapidapi_key if "RapidAPI" in image_api_choice and 'rapidapi_key' in locals() else None
+                    pexels_direct = pexels_api_key if image_api_choice == "Direct Pexels API" and 'pexels_api_key' in locals() else None
+                    stability_direct = stability_api_key if image_api_choice == "Stability AI (Paid)" and 'stability_api_key' in locals() else None
+                    
                     # AUTO-CREATE POWERPOINT IMMEDIATELY
                     prs = create_powerpoint(
-                        slides_content, theme, image_mode, 
-                        stability_api_key, pexels_api_key,
+                        slides_content, theme, image_mode,
+                        image_api_choice,
+                        rapid_key,
+                        pexels_direct,
+                        stability_direct,
                         category, audience, topic, 
                         image_position,
                         image_style,
@@ -958,57 +1133,6 @@ with tab1:
                             if slide.get('image_prompt'):
                                 st.caption(f"🖼️ Image: {slide['image_prompt']}")
                             st.markdown("---")
-                    
-                    # Edit option
-                    st.markdown("---")
-                    with st.expander("✏️ Want to Edit? Click Here", expanded=False):
-                        st.info("💡 Edit your slides and regenerate the presentation")
-                        edited_slides = []
-                        for i, slide in enumerate(slides_content):
-                            with st.expander(f"Edit Slide {i+1}: {slide['title']}", expanded=False):
-                                new_title = st.text_input(f"Title", slide['title'], key=f"edit_title_{i}")
-                                new_bullets = st.text_area(
-                                    f"Content (one per line)", 
-                                    "\n".join(slide.get('bullets', [])), 
-                                    height=150,
-                                    key=f"edit_bullets_{i}"
-                                )
-                                new_notes = st.text_area(
-                                    f"Speaker Notes",
-                                    slide.get('speaker_notes', ''),
-                                    height=100,
-                                    key=f"edit_notes_{i}"
-                                )
-                                edited_slides.append({
-                                    "title": new_title,
-                                    "bullets": [b.strip() for b in new_bullets.split("\n") if b.strip()],
-                                    "image_prompt": slide.get('image_prompt', ''),
-                                    "speaker_notes": new_notes
-                                })
-                        
-                        if st.button("🔄 Regenerate with Edits", use_container_width=True):
-                            with st.spinner("Regenerating presentation..."):
-                                prs_new = create_powerpoint(
-                                    edited_slides, theme, image_mode, 
-                                    stability_api_key, pexels_api_key,
-                                    category, audience, topic, 
-                                    image_position,
-                                    image_style,
-                                    logo_data
-                                )
-                                
-                                pptx_io_new = io.BytesIO()
-                                prs_new.save(pptx_io_new)
-                                pptx_io_new.seek(0)
-                                
-                                st.success("✅ Regenerated!")
-                                st.download_button(
-                                    label="📥 Download Updated PowerPoint",
-                                    data=pptx_io_new,
-                                    file_name=f"{topic.replace(' ', '_')}_edited.pptx",
-                                    mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                                    use_container_width=True
-                                )
 
 with tab2:
     st.subheader("📊 Bulk Presentation Generation")
@@ -1064,8 +1188,9 @@ with tab2:
                             
                             if slides:
                                 prs = create_powerpoint(
-                                    slides, theme if 'theme' in locals() else "Corporate Blue", "None", 
-                                    None, None,
+                                    slides, theme if 'theme' in locals() else "Corporate Blue", "No Images",
+                                    "Direct Unsplash (Free)",
+                                    None, None, None,
                                     row.get('category', 'Business'),
                                     row.get('audience', 'Corporate'),
                                     row['topic'],
@@ -1110,7 +1235,7 @@ with tab3:
                 tone if 'tone' in locals() else "Formal",
                 audience if 'audience' in locals() else "Corporate",
                 theme if 'theme' in locals() else "Corporate Blue",
-                image_mode if 'image_mode' in locals() else "Free Images (Auto)",
+                image_mode if 'image_mode' in locals() else "With Images",
                 language if 'language' in locals() else "English"
             )
             st.download_button(
@@ -1139,8 +1264,8 @@ with tab3:
 st.markdown("---")
 st.markdown("""
 <div style='text-align: center; color: #666;'>
-    <p>🎯 <strong>AI PowerPoint Generator Pro v2.0</strong></p>
-    <p>✨ With Auto-Download | Multi-Language | AI Coach | Bulk Generation & More!</p>
-    <p>🆓 <strong>Get Pexels API</strong> (free) for best results: <a href="https://www.pexels.com/api/">pexels.com/api</a></p>
+    <p>🎯 <strong>AI PowerPoint Generator Pro v2.0 - RapidAPI Edition</strong></p>
+    <p>✨ With RapidAPI | Multi-Language | AI Coach | Bulk Generation & More!</p>
+    <p>🔥 <strong>Get RapidAPI Key</strong>: <a href="https://rapidapi.com/hub">rapidapi.com/hub</a></p>
 </div>
 """, unsafe_allow_html=True)
