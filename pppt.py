@@ -31,6 +31,18 @@ if 'generation_count' not in st.session_state:
     st.session_state.slides_content = None
     st.session_state.edited_slides = None
     st.session_state.final_pptx = None
+    st.session_state.google_searches_used = 0  # Track API usage
+
+# Load secrets safely
+def load_api_keys():
+    """Load API keys from secrets or return None"""
+    try:
+        google_api_key = st.secrets.get("google", {}).get("api_key", "")
+        google_cx = st.secrets.get("google", {}).get("cx", "")
+        pexels_api_key = st.secrets.get("pexels", {}).get("api_key", "")
+        return google_api_key, google_cx, pexels_api_key
+    except:
+        return "", "", ""
 
 # Custom CSS
 st.markdown("""
@@ -63,6 +75,13 @@ st.markdown("""
         border-radius: 15px;
         margin: 2rem 0;
         text-align: center;
+    }
+    .security-warning {
+        background: #fff3cd;
+        border: 2px solid #ffc107;
+        border-radius: 10px;
+        padding: 1rem;
+        margin: 1rem 0;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -99,26 +118,50 @@ with st.sidebar:
     # Image API Configuration
     st.subheader("🖼️ Image Configuration")
     
-    # Google API Key (pre-filled)
-    google_api_key = st.text_input(
-        "Google API Key *", 
-        value="AIzaSyB8BKP0m1r6_cuB3byyxfUwsSiGtrRPMFI",
-        type="password",
-        help="Google Custom Search API Key"
-    )
+    # Load from secrets first
+    default_google_key, default_google_cx, default_pexels_key = load_api_keys()
     
-    # Custom Search Engine ID
-    google_cx = st.text_input(
-        "Google Search Engine ID *",
-        type="password",
-        help="Get it from: https://programmablesearchengine.google.com/"
-    )
+    # Security warning if keys are in secrets
+    if default_google_key:
+        st.success("✅ Google API key loaded from secrets")
+        use_secrets_google = st.checkbox("Use keys from secrets file", value=True)
+    else:
+        use_secrets_google = False
+        st.warning("⚠️ No Google API key in secrets file")
+    
+    # Google API Configuration
+    if use_secrets_google:
+        google_api_key = default_google_key
+        google_cx = default_google_cx
+        st.info(f"🔒 Using API key from secrets: `{google_api_key[:8]}...`")
+        st.info(f"🔒 Using CX from secrets: `{google_cx[:12]}...`")
+    else:
+        google_api_key = st.text_input(
+            "Google API Key *", 
+            type="password",
+            help="Google Custom Search API Key - Get from: https://console.cloud.google.com/"
+        )
+        
+        google_cx = st.text_input(
+            "Google Search Engine ID *",
+            help="Get it from: https://programmablesearchengine.google.com/",
+            placeholder="e.g., 6386765a3a8ed49a9"
+        )
     
     if google_api_key and google_cx:
         st.success("✅ Google Image Search configured!")
-        st.info("💡 Using Google Custom Search API for images")
+        
+        # Show API quota info
+        with st.expander("📊 API Quota Info"):
+            st.write("**Google Custom Search Limits:**")
+            st.write("- Free: 100 searches/day")
+            st.write("- Paid: $5 per 1,000 queries")
+            st.metric("Searches Used (This Session)", st.session_state.google_searches_used)
+            
+            if st.session_state.google_searches_used > 50:
+                st.warning("⚠️ High API usage detected!")
     else:
-        st.warning("⚠️ Need Search Engine ID for images")
+        st.warning("⚠️ Need API credentials for images")
     
     # Image fallback options
     st.markdown("### 🔄 Fallback Image Sources")
@@ -126,11 +169,15 @@ with st.sidebar:
     use_pexels_fallback = st.checkbox("Use Pexels as fallback", value=False)
     
     if use_pexels_fallback:
-        pexels_api_key = st.text_input(
-            "Pexels API Key (Optional)", 
-            type="password",
-            help="FREE! Get it at: https://www.pexels.com/api/"
-        )
+        if default_pexels_key and use_secrets_google:
+            pexels_api_key = default_pexels_key
+            st.info("🔒 Using Pexels key from secrets")
+        else:
+            pexels_api_key = st.text_input(
+                "Pexels API Key (Optional)", 
+                type="password",
+                help="FREE! Get it at: https://www.pexels.com/api/"
+            )
     else:
         pexels_api_key = None
     
@@ -158,16 +205,28 @@ with st.sidebar:
     st.markdown("### 📖 How to Use")
     st.markdown("""
     1. Enter OpenRouter API key
-    2. Add Google Search Engine ID
+    2. Add Google credentials or use secrets
     3. Enter your presentation topic
     4. Click Generate!
     5. Download immediately!
     """)
     st.markdown("---")
     st.markdown("### 🔗 Get API Keys")
-    st.markdown("🔑 [Google Custom Search](https://programmablesearchengine.google.com/)")
+    st.markdown("🔑 [Google Cloud Console](https://console.cloud.google.com/apis/credentials)")
+    st.markdown("🔍 [Google Custom Search](https://programmablesearchengine.google.com/)")
     st.markdown("🆓 [Pexels API (FREE)](https://www.pexels.com/api/)")
-    st.markdown("[OpenRouter API](https://openrouter.ai/keys)")
+    st.markdown("🤖 [OpenRouter API](https://openrouter.ai/keys)")
+    
+    # Security tips
+    with st.expander("🔒 Security Tips"):
+        st.markdown("""
+        **Best Practices:**
+        1. ✅ Store API keys in `.streamlit/secrets.toml`
+        2. ✅ Add `secrets.toml` to `.gitignore`
+        3. ✅ Never commit API keys to Git
+        4. ✅ Regenerate keys if exposed
+        5. ✅ Use environment variables in production
+        """)
 
 # ============ IMAGE FUNCTIONS ============
 
@@ -207,6 +266,9 @@ def generate_topic_search_terms(main_topic, slide_title, image_prompt):
 def get_google_image(query, api_key, cx):
     """Get image using Google Custom Search API"""
     try:
+        # Increment usage counter
+        st.session_state.google_searches_used += 1
+        
         url = "https://www.googleapis.com/customsearch/v1"
         
         params = {
@@ -242,6 +304,12 @@ def get_google_image(query, api_key, cx):
                                 return img_response.content
                     except:
                         continue
+        elif response.status_code == 429:
+            st.warning(f"      ⚠️ Google API rate limit reached!")
+            return None
+        elif response.status_code == 403:
+            st.error(f"      ❌ Google API: Invalid credentials or quota exceeded")
+            return None
         
         return None
     except Exception as e:
@@ -943,7 +1011,7 @@ with tab3:
 st.markdown("---")
 st.markdown("""
 <div style='text-align: center; color: #666;'>
-    <p>🎯 <strong>AI PowerPoint Generator Pro - Google API Edition</strong></p>
-    <p>✨ With Google Custom Search | Multi-Language | AI Coach!</p>
+    <p>🎯 <strong>AI PowerPoint Generator Pro - Secure Edition</strong></p>
+    <p>✨ Enhanced Security | Google API | Multi-Language Support</p>
 </div>
 """, unsafe_allow_html=True)
