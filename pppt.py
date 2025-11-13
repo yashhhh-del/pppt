@@ -96,55 +96,43 @@ with st.sidebar:
     
     st.markdown("---")
     
-    # Image API Selection
-    st.subheader("🖼️ Image Sources")
+    # Image API Configuration
+    st.subheader("🖼️ Image Configuration")
     
-    image_api_choice = st.selectbox(
-        "Choose Image API",
-        [
-            "RapidAPI (Pexels)",
-            "RapidAPI (Unsplash)", 
-            "RapidAPI (Pixabay)",
-            "Direct Pexels API",
-            "Direct Unsplash (Free)",
-            "Stability AI (Paid)"
-        ]
+    # Google API Key (pre-filled)
+    google_api_key = st.text_input(
+        "Google API Key *", 
+        value="AIzaSyB8BKP0m1r6_cuB3byyxfUwsSiGtrRPMFI",
+        type="password",
+        help="Google Custom Search API Key"
     )
     
-    # RapidAPI Key (for all RapidAPI services)
-    if "RapidAPI" in image_api_choice:
-        rapidapi_key = st.text_input(
-            "RapidAPI Key *", 
-            type="password",
-            help="Required for RapidAPI services. Get it at: https://rapidapi.com/"
-        )
-        
-        if rapidapi_key:
-            st.success("✅ RapidAPI key connected!")
-        
-        st.info("💡 One RapidAPI key works for Pexels, Unsplash & Pixabay!")
+    # Custom Search Engine ID
+    google_cx = st.text_input(
+        "Google Search Engine ID *",
+        type="password",
+        help="Get it from: https://programmablesearchengine.google.com/"
+    )
     
-    # Direct API Keys
-    if image_api_choice == "Direct Pexels API":
+    if google_api_key and google_cx:
+        st.success("✅ Google Image Search configured!")
+        st.info("💡 Using Google Custom Search API for images")
+    else:
+        st.warning("⚠️ Need Search Engine ID for images")
+    
+    # Image fallback options
+    st.markdown("### 🔄 Fallback Image Sources")
+    use_unsplash_fallback = st.checkbox("Use Unsplash as fallback", value=True)
+    use_pexels_fallback = st.checkbox("Use Pexels as fallback", value=False)
+    
+    if use_pexels_fallback:
         pexels_api_key = st.text_input(
-            "Pexels API Key", 
+            "Pexels API Key (Optional)", 
             type="password",
             help="FREE! Get it at: https://www.pexels.com/api/"
         )
-        rapidapi_key = None
-    elif image_api_choice == "Stability AI (Paid)":
-        stability_api_key = st.text_input(
-            "Stability AI API Key", 
-            type="password",
-            help="Get it at: https://platform.stability.ai"
-        )
-        rapidapi_key = None
-        pexels_api_key = None
     else:
         pexels_api_key = None
-        stability_api_key = None
-        if "RapidAPI" not in image_api_choice:
-            rapidapi_key = None
     
     st.markdown("---")
     
@@ -170,17 +158,16 @@ with st.sidebar:
     st.markdown("### 📖 How to Use")
     st.markdown("""
     1. Enter OpenRouter API key
-    2. **Choose image source** (RapidAPI recommended)
+    2. Add Google Search Engine ID
     3. Enter your presentation topic
     4. Click Generate!
     5. Download immediately!
     """)
     st.markdown("---")
     st.markdown("### 🔗 Get API Keys")
-    st.markdown("🔥 [RapidAPI Hub](https://rapidapi.com/hub)")
+    st.markdown("🔑 [Google Custom Search](https://programmablesearchengine.google.com/)")
     st.markdown("🆓 [Pexels API (FREE)](https://www.pexels.com/api/)")
     st.markdown("[OpenRouter API](https://openrouter.ai/keys)")
-    st.markdown("[Stability AI](https://platform.stability.ai)")
 
 # ============ IMAGE FUNCTIONS ============
 
@@ -215,107 +202,53 @@ def generate_topic_search_terms(main_topic, slide_title, image_prompt):
     
     return unique
 
-# ============ RAPIDAPI IMAGE FUNCTIONS ============
+# ============ GOOGLE IMAGE SEARCH ============
 
-def get_rapidapi_pexels_image(query, api_key):
-    """Get image from Pexels via RapidAPI"""
+def get_google_image(query, api_key, cx):
+    """Get image using Google Custom Search API"""
     try:
-        url = "https://pexels-api.p.rapidapi.com/search"
-        
-        headers = {
-            "x-rapidapi-key": api_key,
-            "x-rapidapi-host": "pexels-api.p.rapidapi.com"
-        }
+        url = "https://www.googleapis.com/customsearch/v1"
         
         params = {
-            "query": query,
-            "per_page": "3",
-            "page": "1",
-            "orientation": "landscape"
+            'key': api_key,
+            'cx': cx,
+            'q': query,
+            'searchType': 'image',
+            'num': 3,
+            'imgSize': 'large',
+            'imgType': 'photo',
+            'safe': 'active',
+            'fileType': 'jpg,png'
         }
         
-        response = requests.get(url, headers=headers, params=params, timeout=10)
+        response = requests.get(url, params=params, timeout=10)
         
         if response.status_code == 200:
             data = response.json()
-            if data.get("photos") and len(data["photos"]) > 0:
-                photo = data["photos"][0]
-                img_url = photo["src"]["large"]
-                
-                img_response = requests.get(img_url, timeout=10)
-                if img_response.status_code == 200:
-                    return img_response.content
+            
+            if 'items' in data and len(data['items']) > 0:
+                # Try to get image from first result
+                for item in data['items'][:3]:  # Try first 3 results
+                    try:
+                        image_url = item['link']
+                        img_response = requests.get(image_url, timeout=10, headers={
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                        })
+                        
+                        if img_response.status_code == 200 and len(img_response.content) > 5000:
+                            # Validate it's actually an image
+                            img = Image.open(io.BytesIO(img_response.content))
+                            if img.size[0] > 300 and img.size[1] > 200:
+                                return img_response.content
+                    except:
+                        continue
+        
         return None
     except Exception as e:
-        st.write(f"      ⚠️ RapidAPI Pexels error: {str(e)}")
+        st.write(f"      ⚠️ Google Search error: {str(e)}")
         return None
 
-def get_rapidapi_unsplash_image(query, api_key):
-    """Get image from Unsplash via RapidAPI"""
-    try:
-        url = "https://unsplash-api-zhpy.p.rapidapi.com/search/photos"
-        
-        headers = {
-            "x-rapidapi-key": api_key,
-            "x-rapidapi-host": "unsplash-api-zhpy.p.rapidapi.com"
-        }
-        
-        params = {
-            "query": query,
-            "per_page": "3",
-            "orientation": "landscape"
-        }
-        
-        response = requests.get(url, headers=headers, params=params, timeout=10)
-        
-        if response.status_code == 200:
-            data = response.json()
-            if data.get("results") and len(data["results"]) > 0:
-                photo = data["results"][0]
-                img_url = photo["urls"]["regular"]
-                
-                img_response = requests.get(img_url, timeout=10)
-                if img_response.status_code == 200:
-                    return img_response.content
-        return None
-    except Exception as e:
-        st.write(f"      ⚠️ RapidAPI Unsplash error: {str(e)}")
-        return None
-
-def get_rapidapi_pixabay_image(query, api_key):
-    """Get image from Pixabay via RapidAPI"""
-    try:
-        url = "https://pixabay-api.p.rapidapi.com/search"
-        
-        headers = {
-            "x-rapidapi-key": api_key,
-            "x-rapidapi-host": "pixabay-api.p.rapidapi.com"
-        }
-        
-        params = {
-            "q": query,
-            "per_page": "3",
-            "image_type": "photo",
-            "orientation": "horizontal"
-        }
-        
-        response = requests.get(url, headers=headers, params=params, timeout=10)
-        
-        if response.status_code == 200:
-            data = response.json()
-            if data.get("hits") and len(data["hits"]) > 0:
-                photo = data["hits"][0]
-                img_url = photo["largeImageURL"]
-                
-                img_response = requests.get(img_url, timeout=10)
-                if img_response.status_code == 200:
-                    return img_response.content
-        return None
-    except Exception as e:
-        st.write(f"      ⚠️ RapidAPI Pixabay error: {str(e)}")
-        return None
-
-# ============ DIRECT API IMAGE FUNCTIONS ============
+# ============ FALLBACK IMAGE SOURCES ============
 
 def get_unsplash_image(query, width=800, height=600):
     """Get image from Unsplash Direct (Free)"""
@@ -330,7 +263,6 @@ def get_unsplash_image(query, width=800, height=600):
         response = requests.get(url, timeout=15, allow_redirects=True, headers=headers)
         
         if response.status_code == 200 and len(response.content) > 5000:
-            # Validate image
             try:
                 img = Image.open(io.BytesIO(response.content))
                 if img.size[0] > 400 and img.size[1] > 300:
@@ -370,49 +302,13 @@ def get_pexels_image(query, api_key):
     except:
         return None
 
-def generate_image_stability(api_key, prompt, image_style):
-    """Generate AI image using Stability AI"""
-    try:
-        style_prompts = {
-            "Professional": "professional photography, corporate, clean",
-            "Minimalist": "minimal, simple, clean lines, white background",
-            "Colorful": "vibrant colors, dynamic, energetic",
-            "Corporate": "business, formal, blue tones, professional",
-            "Creative": "artistic, creative, unique perspective",
-            "Infographic": "flat design, infographic style, icons"
-        }
-        
-        enhanced_prompt = f"{prompt}, {style_prompts.get(image_style, style_prompts['Professional'])}"
-        
-        url = "https://api.stability.ai/v2beta/stable-image/generate/core"
-        
-        response = requests.post(
-            url,
-            headers={
-                "authorization": f"Bearer {api_key.strip()}",
-                "accept": "image/*"
-            },
-            files={"none": ''},
-            data={
-                "prompt": enhanced_prompt,
-                "output_format": "png",
-            },
-        )
-        
-        if response.status_code == 200:
-            return response.content
-        return None
-    except:
-        return None
-
 # ============ UNIFIED IMAGE RETRIEVAL ============
 
-def get_topic_relevant_image(main_topic, slide_title, image_prompt, image_api_choice, rapidapi_key=None, pexels_key=None, stability_key=None, image_style="Professional"):
-    """Get highly relevant image based on selected API"""
+def get_topic_relevant_image(main_topic, slide_title, image_prompt, google_api_key, google_cx, use_unsplash, use_pexels, pexels_key):
+    """Get highly relevant image using Google + fallbacks"""
     
     st.write(f"   🎯 Topic: {main_topic}")
     st.write(f"   📄 Slide: {slide_title}")
-    st.write(f"   🔧 Using: {image_api_choice}")
     
     # Generate search terms
     search_terms = generate_topic_search_terms(main_topic, slide_title, image_prompt)
@@ -422,49 +318,45 @@ def get_topic_relevant_image(main_topic, slide_title, image_prompt, image_api_ch
     for i, term in enumerate(search_terms, 1):
         st.write(f"      → Search {i}: '{term}'")
         
-        image_data = None
+        # Try Google Image Search first
+        if google_api_key and google_cx:
+            st.write(f"         🔍 Searching Google...")
+            image_data = get_google_image(term, google_api_key, google_cx)
+            if image_data:
+                st.write(f"      ✅ Found on Google!")
+                return image_data
         
-        # Route to appropriate API
-        if image_api_choice == "RapidAPI (Pexels)" and rapidapi_key:
-            image_data = get_rapidapi_pexels_image(term, rapidapi_key)
-        
-        elif image_api_choice == "RapidAPI (Unsplash)" and rapidapi_key:
-            image_data = get_rapidapi_unsplash_image(term, rapidapi_key)
-        
-        elif image_api_choice == "RapidAPI (Pixabay)" and rapidapi_key:
-            image_data = get_rapidapi_pixabay_image(term, rapidapi_key)
-        
-        elif image_api_choice == "Direct Pexels API" and pexels_key:
+        # Try Pexels fallback
+        if use_pexels and pexels_key:
+            st.write(f"         🔍 Trying Pexels fallback...")
             image_data = get_pexels_image(term, pexels_key)
+            if image_data:
+                st.write(f"      ✅ Found on Pexels!")
+                return image_data
         
-        elif image_api_choice == "Direct Unsplash (Free)":
+        # Try Unsplash fallback
+        if use_unsplash:
+            st.write(f"         🔍 Trying Unsplash fallback...")
             image_data = get_unsplash_image(term)
-        
-        elif image_api_choice == "Stability AI (Paid)" and stability_key:
-            st.write("      🤖 Generating AI image...")
-            image_data = generate_image_stability(stability_key, term, image_style)
-        
-        if image_data:
-            st.write(f"      ✅ Found image!")
-            return image_data
+            if image_data:
+                st.write(f"      ✅ Found on Unsplash!")
+                return image_data
     
-    # Fallback to generic topic
+    # Final fallback to generic topic
     st.write(f"   🆘 Trying generic fallback...")
     fallback = main_topic.split()[0] if main_topic else "business"
     
-    if image_api_choice == "Direct Unsplash (Free)":
-        image_data = get_unsplash_image(fallback)
-    elif rapidapi_key and "RapidAPI" in image_api_choice:
-        if "Pexels" in image_api_choice:
-            image_data = get_rapidapi_pexels_image(fallback, rapidapi_key)
-        elif "Unsplash" in image_api_choice:
-            image_data = get_rapidapi_unsplash_image(fallback, rapidapi_key)
-        elif "Pixabay" in image_api_choice:
-            image_data = get_rapidapi_pixabay_image(fallback, rapidapi_key)
+    if google_api_key and google_cx:
+        image_data = get_google_image(fallback, google_api_key, google_cx)
+        if image_data:
+            st.write(f"      ✅ Got fallback from Google")
+            return image_data
     
-    if image_data:
-        st.write(f"      ✅ Got fallback image")
-        return image_data
+    if use_unsplash:
+        image_data = get_unsplash_image(fallback)
+        if image_data:
+            st.write(f"      ✅ Got fallback from Unsplash")
+            return image_data
     
     return None
 
@@ -556,7 +448,6 @@ Return ONLY JSON, no markdown."""
         else:
             # Enhanced error handling
             if response.status_code == 429:
-                error_data = response.json()
                 st.error(f"⏱️ Rate Limit: Model is temporarily unavailable")
                 st.info("💡 **Solutions:**\n- Wait 30-60 seconds and try again\n- Switch to a different free model above\n- Use Claude 3.5 Sonnet (paid but reliable)")
                 raise Exception("Rate limit - retry needed")
@@ -571,7 +462,7 @@ Return ONLY JSON, no markdown."""
         return None
     except Exception as e:
         if "Rate limit" in str(e):
-            raise  # Re-raise for retry logic
+            raise
         st.error(f"Error: {str(e)}")
         return None
 
@@ -585,11 +476,11 @@ def generate_content_with_retry(api_key, topic, category, slide_count, tone, aud
         except Exception as e:
             if "Rate limit" in str(e) or "429" in str(e):
                 if attempt < max_retries - 1:
-                    wait_time = (attempt + 1) * 5  # 5, 10, 15 seconds
+                    wait_time = (attempt + 1) * 5
                     st.warning(f"⏳ Rate limit hit. Retrying in {wait_time} seconds... (Attempt {attempt + 2}/{max_retries})")
                     time.sleep(wait_time)
                 else:
-                    st.error("❌ Rate limit persists after retries. Please:\n1. Wait 1-2 minutes\n2. Switch to different free model\n3. Use Claude model (paid)")
+                    st.error("❌ Rate limit persists after retries.")
                     return None
             else:
                 return None
@@ -598,37 +489,29 @@ def generate_content_with_retry(api_key, topic, category, slide_count, tone, aud
 # ============ ANALYSIS FUNCTIONS ============
 
 def analyze_presentation(slides_content):
-    """Analyze presentation quality with AI Coach"""
+    """Analyze presentation quality"""
     issues = []
     suggestions = []
     score = 100
     
     for i, slide in enumerate(slides_content, 1):
-        # Too many bullets
         bullet_count = len(slide.get('bullets', []))
         if bullet_count > 5:
             issues.append(f"Slide {i}: Too many bullets ({bullet_count})")
-            suggestions.append(f"Slide {i}: Reduce to 3-5 key points for better retention")
+            suggestions.append(f"Slide {i}: Reduce to 3-5 key points")
             score -= 5
         
-        # Title too long
         title_len = len(slide['title'])
         if title_len > 60:
             issues.append(f"Slide {i}: Title too long ({title_len} chars)")
             suggestions.append(f"Slide {i}: Shorten title to <60 characters")
             score -= 3
         
-        # Check for text-heavy slides
         total_text = sum(len(b) for b in slide.get('bullets', []))
         if total_text > 500:
             issues.append(f"Slide {i}: Too much text ({total_text} chars)")
-            suggestions.append(f"Slide {i}: Use more visuals, less text. Aim for <400 chars")
+            suggestions.append(f"Slide {i}: Use more visuals, less text")
             score -= 5
-        
-        # Check for speaker notes
-        if not slide.get('speaker_notes') or len(slide.get('speaker_notes', '')) < 20:
-            suggestions.append(f"Slide {i}: Add detailed speaker notes for better delivery")
-            score -= 2
     
     score = max(0, score)
     return issues, suggestions, score
@@ -640,11 +523,9 @@ def generate_slide_preview(slide_data, theme_colors):
     ax.set_ylim(0, 7.5)
     ax.axis('off')
     
-    # Title
     title_color = '#' + ''.join([format(c, '02x') for c in theme_colors['accent']])
     ax.text(5, 6.5, slide_data['title'][:50], ha='center', fontsize=18, weight='bold', color=title_color)
     
-    # Bullets
     text_color = '#' + ''.join([format(c, '02x') for c in theme_colors['text']])
     y_pos = 5.5
     for bullet in slide_data.get('bullets', [])[:5]:
@@ -661,30 +542,25 @@ def generate_slide_preview(slide_data, theme_colors):
 # ============ EXPORT FUNCTIONS ============
 
 def export_to_pdf(slides_content, topic):
-    """Export presentation to PDF format"""
+    """Export to PDF"""
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter)
     styles = getSampleStyleSheet()
     story = []
     
-    # Title
     title = Paragraph(f"<b>{topic}</b>", styles['Title'])
     story.append(title)
     story.append(Spacer(1, 12))
     
-    # Content
     for i, slide in enumerate(slides_content, 1):
-        # Slide title
         slide_title = Paragraph(f"<b>Slide {i}: {slide['title']}</b>", styles['Heading2'])
         story.append(slide_title)
         story.append(Spacer(1, 6))
         
-        # Bullets
         for bullet in slide.get('bullets', []):
             bullet_text = Paragraph(f"• {bullet}", styles['BodyText'])
             story.append(bullet_text)
         
-        # Speaker notes
         if slide.get('speaker_notes'):
             notes = Paragraph(f"<i>Notes: {slide['speaker_notes']}</i>", styles['Italic'])
             story.append(Spacer(1, 6))
@@ -697,7 +573,7 @@ def export_to_pdf(slides_content, topic):
     return buffer
 
 def export_to_google_slides_json(slides_content, topic, theme):
-    """Export to Google Slides compatible JSON format"""
+    """Export to Google Slides JSON"""
     google_slides_data = {
         "title": topic,
         "theme": theme,
@@ -717,7 +593,7 @@ def export_to_google_slides_json(slides_content, topic, theme):
 
 # ============ POWERPOINT CREATION ============
 
-def create_powerpoint(slides_content, theme, image_mode, image_api_choice, rapidapi_key, pexels_key, stability_key, category, audience, topic, image_position, image_style, logo_data):
+def create_powerpoint(slides_content, theme, image_mode, google_api_key, google_cx, use_unsplash, use_pexels, pexels_key, category, audience, topic, image_position, logo_data):
     """Create PowerPoint presentation"""
     prs = Presentation()
     prs.slide_width = Inches(10)
@@ -734,7 +610,6 @@ def create_powerpoint(slides_content, theme, image_mode, image_api_choice, rapid
     
     color_scheme = themes.get(theme, themes["Corporate Blue"])
     
-    # Image position settings
     positions = {
         "Right Side": {"left": Inches(6.5), "top": Inches(2), "width": Inches(3)},
         "Left Side": {"left": Inches(0.5), "top": Inches(2), "width": Inches(3)},
@@ -755,24 +630,18 @@ def create_powerpoint(slides_content, theme, image_mode, image_api_choice, rapid
         blank_slide_layout = prs.slide_layouts[6]
         slide = prs.slides.add_slide(blank_slide_layout)
         
-        # Background
         background = slide.background
         fill = background.fill
         fill.solid()
         fill.fore_color.rgb = color_scheme["bg"]
         
-        # Add logo if provided
         if logo_data:
             try:
                 logo_stream = io.BytesIO(logo_data)
-                logo_left = Inches(9)
-                logo_top = Inches(0.2)
-                logo_width = Inches(0.8)
-                slide.shapes.add_picture(logo_stream, logo_left, logo_top, width=logo_width)
+                slide.shapes.add_picture(logo_stream, Inches(9), Inches(0.2), width=Inches(0.8))
             except:
                 pass
         
-        # Title
         title_box = slide.shapes.add_textbox(Inches(0.5), Inches(0.5), Inches(8.5), Inches(1))
         title_frame = title_box.text_frame
         title_frame.text = slide_data["title"]
@@ -781,9 +650,8 @@ def create_powerpoint(slides_content, theme, image_mode, image_api_choice, rapid
         title_frame.paragraphs[0].font.color.rgb = color_scheme["accent"]
         title_frame.paragraphs[0].alignment = PP_ALIGN.CENTER if idx == 0 else PP_ALIGN.LEFT
         
-        # Bullets
         if idx > 0 and slide_data.get("bullets"):
-            bullet_width = Inches(5.5) if image_mode == "With Images" and image_position == "Right Side" else Inches(9)
+            bullet_width = Inches(5.5) if image_mode == "With Images" else Inches(9)
             bullet_box = slide.shapes.add_textbox(Inches(0.5), Inches(2), bullet_width, Inches(4.5))
             text_frame = bullet_box.text_frame
             text_frame.word_wrap = True
@@ -796,7 +664,6 @@ def create_powerpoint(slides_content, theme, image_mode, image_api_choice, rapid
                 p.font.color.rgb = color_scheme["text"]
                 p.space_after = Pt(12)
         
-        # Subtitle on first slide
         if idx == 0:
             subtitle_box = slide.shapes.add_textbox(Inches(0.5), Inches(3), Inches(9), Inches(1))
             subtitle_frame = subtitle_box.text_frame
@@ -805,12 +672,10 @@ def create_powerpoint(slides_content, theme, image_mode, image_api_choice, rapid
             subtitle_frame.paragraphs[0].font.color.rgb = color_scheme["text"]
             subtitle_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
         
-        # Speaker notes
         if slide_data.get("speaker_notes"):
             notes_slide = slide.notes_slide
             notes_slide.notes_text_frame.text = slide_data["speaker_notes"]
         
-        # Add images to content slides
         if idx > 0 and image_mode == "With Images":
             with st.expander(f"🖼️ Slide {idx + 1}: {slide_data['title']}", expanded=False):
                 image_prompt = slide_data.get("image_prompt", "")
@@ -819,25 +684,25 @@ def create_powerpoint(slides_content, theme, image_mode, image_api_choice, rapid
                     main_topic=topic,
                     slide_title=slide_data["title"],
                     image_prompt=image_prompt,
-                    image_api_choice=image_api_choice,
-                    rapidapi_key=rapidapi_key,
-                    pexels_key=pexels_key,
-                    stability_key=stability_key,
-                    image_style=image_style
+                    google_api_key=google_api_key,
+                    google_cx=google_cx,
+                    use_unsplash=use_unsplash,
+                    use_pexels=use_pexels,
+                    pexels_key=pexels_key
                 )
                 
                 if image_data:
                     try:
                         image_stream = io.BytesIO(image_data)
-                        pic = slide.shapes.add_picture(
+                        slide.shapes.add_picture(
                             image_stream, 
                             img_pos["left"], 
                             img_pos["top"], 
                             width=img_pos["width"]
                         )
-                        st.success(f"   ✅ Image added successfully!")
+                        st.success(f"   ✅ Image added!")
                     except Exception as e:
-                        st.error(f"   ❌ Failed to add image: {str(e)}")
+                        st.error(f"   ❌ Failed: {str(e)}")
                 else:
                     st.warning(f"   ⚠️ No image found")
             
@@ -851,7 +716,7 @@ def create_powerpoint(slides_content, theme, image_mode, image_api_choice, rapid
 # ============ TEMPLATE FUNCTIONS ============
 
 def save_template(category, slide_count, tone, audience, theme, image_mode, language):
-    """Save current settings as template"""
+    """Save template"""
     template = {
         "category": category,
         "slide_count": slide_count,
@@ -864,7 +729,7 @@ def save_template(category, slide_count, tone, audience, theme, image_mode, lang
     return json.dumps(template, indent=2)
 
 def load_template(template_file):
-    """Load template from uploaded file"""
+    """Load template"""
     try:
         template = json.loads(template_file.read())
         return template
@@ -873,7 +738,6 @@ def load_template(template_file):
 
 # ============ MAIN UI ============
 
-# Tab navigation
 tab1, tab2, tab3 = st.tabs(["📝 Create Presentation", "📊 Bulk Generate", "⚙️ Templates"])
 
 with tab1:
@@ -881,44 +745,34 @@ with tab1:
 
     with col1:
         st.subheader("📝 Your Topic")
-        topic = st.text_input("Enter Topic *", placeholder="e.g., Space Exploration, Digital Marketing, Climate Change...")
-        st.caption("💡 Be specific! The more detailed your topic, the better the images will match.")
+        topic = st.text_input("Enter Topic *", placeholder="e.g., Space Exploration, Digital Marketing...")
+        st.caption("💡 Be specific for better images!")
         
         category = st.selectbox("Category *", ["Business", "Pitch", "Marketing", "Technical", "Academic", "Training", "Sales"])
         
         col1_1, col1_2 = st.columns(2)
         with col1_1:
-            slide_count = st.number_input("Number of Slides *", min_value=3, max_value=20, value=6)
+            slide_count = st.number_input("Slides *", min_value=3, max_value=20, value=6)
         with col1_2:
-            language = st.selectbox("Language 🌍", ["English", "Hindi (हिंदी)", "Spanish", "French", "German", "Chinese", "Japanese"])
+            language = st.selectbox("Language 🌍", ["English", "Hindi (हिंदी)", "Spanish", "French", "German"])
         
         tone = st.selectbox("Tone *", ["Formal", "Neutral", "Inspirational", "Educational", "Persuasive"])
 
     with col2:
         st.subheader("🎨 Style & Images")
-        audience = st.selectbox("Audience *", ["Investors", "Students", "Corporate", "Clients", "Managers", "General Public"])
+        audience = st.selectbox("Audience *", ["Investors", "Students", "Corporate", "Clients", "Managers"])
         theme = st.selectbox("Theme *", ["Corporate Blue", "Gradient Modern", "Minimal Dark", "Pastel Soft", "Professional Green", "Elegant Purple"])
         
-        image_mode = st.selectbox(
-            "Image Mode *",
-            ["With Images", "No Images"],
-            help="Add topic-relevant images to slides"
-        )
+        image_mode = st.selectbox("Image Mode *", ["With Images", "No Images"])
         
         if image_mode == "With Images":
-            col2_1, col2_2 = st.columns(2)
-            with col2_1:
-                image_position = st.selectbox("Image Position", ["Right Side", "Left Side", "Top Right Corner", "Bottom", "Center"])
-            with col2_2:
-                image_style = st.selectbox("Image Style", ["Professional", "Minimalist", "Colorful", "Corporate", "Creative", "Infographic"])
+            image_position = st.selectbox("Position", ["Right Side", "Left Side", "Top Right Corner", "Bottom", "Center"])
         else:
             image_position = "Right Side"
-            image_style = "Professional"
 
     st.subheader("➕ Additional Points (Optional)")
-    key_points = st.text_area("Key points to cover", placeholder="- Point 1\n- Point 2", height=80)
+    key_points = st.text_area("Key points", placeholder="- Point 1\n- Point 2", height=80)
 
-    # Export format
     export_format = st.selectbox("Export Format", ["PowerPoint (.pptx)", "PowerPoint + PDF", "Google Slides (JSON)"])
 
     st.markdown("---")
@@ -927,27 +781,22 @@ with tab1:
     with col_btn1:
         generate_button = st.button("🚀 Generate PowerPoint", use_container_width=True, type="primary")
     with col_btn2:
-        save_template_btn = st.button("💾 Save Template", use_container_width=True)
+        save_template_btn = st.button("💾 Template", use_container_width=True)
 
     if save_template_btn:
         template_json = save_template(category, slide_count, tone, audience, theme, image_mode, language)
-        st.download_button(
-            label="📥 Download Template",
-            data=template_json,
-            file_name="presentation_template.json",
-            mime="application/json"
-        )
-        st.success("✅ Template ready to download!")
+        st.download_button("📥 Download", template_json, "template.json", "application/json")
+        st.success("✅ Ready!")
 
     if generate_button:
         if not claude_api_key:
-            st.error("⚠️ Enter OpenRouter API key in sidebar")
+            st.error("⚠️ Enter OpenRouter API key")
         elif not topic:
             st.error("⚠️ Enter a topic")
-        elif image_mode == "With Images" and "RapidAPI" in image_api_choice and not rapidapi_key:
-            st.error("⚠️ Enter RapidAPI key in sidebar for images")
+        elif image_mode == "With Images" and not google_cx:
+            st.error("⚠️ Enter Google Search Engine ID for images")
         else:
-            with st.spinner("🤖 Generating your presentation..."):
+            with st.spinner("🤖 Generating..."):
                 slides_content = generate_content_with_retry(
                     claude_api_key, topic, category, slide_count, 
                     tone, audience, key_points, model_choice, language
@@ -958,35 +807,24 @@ with tab1:
                     st.session_state.generation_count += 1
                     st.session_state.total_slides += len(slides_content)
                     
-                    st.success("✅ Content generated! Creating presentation with images...")
+                    st.success("✅ Creating presentation...")
                     
-                    # Get API keys based on selection
-                    rapid_key = rapidapi_key if "RapidAPI" in image_api_choice and 'rapidapi_key' in locals() else None
-                    pexels_direct = pexels_api_key if image_api_choice == "Direct Pexels API" and 'pexels_api_key' in locals() else None
-                    stability_direct = stability_api_key if image_api_choice == "Stability AI (Paid)" and 'stability_api_key' in locals() else None
-                    
-                    # AUTO-CREATE POWERPOINT IMMEDIATELY
                     prs = create_powerpoint(
                         slides_content, theme, image_mode,
-                        image_api_choice,
-                        rapid_key,
-                        pexels_direct,
-                        stability_direct,
+                        google_api_key, google_cx,
+                        use_unsplash_fallback, use_pexels_fallback, 
+                        pexels_api_key if use_pexels_fallback else None,
                         category, audience, topic, 
-                        image_position,
-                        image_style,
-                        logo_data
+                        image_position, logo_data
                     )
                     
-                    # Save to session state
                     pptx_io = io.BytesIO()
                     prs.save(pptx_io)
                     pptx_io.seek(0)
                     st.session_state.final_pptx = pptx_io.getvalue()
                     
-                    st.success("🎉 PowerPoint ready!")
+                    st.success("🎉 Ready!")
                     
-                    # ============ IMMEDIATE DOWNLOAD SECTION ============
                     st.markdown("---")
                     st.markdown('<div class="download-section">', unsafe_allow_html=True)
                     st.markdown("### 🎉 Your Presentation is Ready!")
@@ -995,7 +833,7 @@ with tab1:
                         col_dl = st.columns([1, 2, 1])
                         with col_dl[1]:
                             st.download_button(
-                                label="📥 DOWNLOAD POWERPOINT NOW",
+                                label="📥 DOWNLOAD NOW",
                                 data=st.session_state.final_pptx,
                                 file_name=f"{topic.replace(' ', '_')}.pptx",
                                 mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
@@ -1005,24 +843,22 @@ with tab1:
                     
                     elif export_format == "PowerPoint + PDF":
                         col_dl1, col_dl2 = st.columns(2)
-                        
                         with col_dl1:
                             st.download_button(
-                                label="📥 Download PowerPoint",
-                                data=st.session_state.final_pptx,
-                                file_name=f"{topic.replace(' ', '_')}.pptx",
-                                mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                                "📥 PowerPoint",
+                                st.session_state.final_pptx,
+                                f"{topic.replace(' ', '_')}.pptx",
+                                "application/vnd.openxmlformats-officedocument.presentationml.presentation",
                                 use_container_width=True,
                                 type="primary"
                             )
-                        
                         with col_dl2:
                             pdf_buffer = export_to_pdf(slides_content, topic)
                             st.download_button(
-                                label="📄 Download PDF",
-                                data=pdf_buffer,
-                                file_name=f"{topic.replace(' ', '_')}.pdf",
-                                mime="application/pdf",
+                                "📄 PDF",
+                                pdf_buffer,
+                                f"{topic.replace(' ', '_')}.pdf",
+                                "application/pdf",
                                 use_container_width=True,
                                 type="primary"
                             )
@@ -1032,25 +868,23 @@ with tab1:
                         col_dl = st.columns([1, 2, 1])
                         with col_dl[1]:
                             st.download_button(
-                                label="📥 Download Google Slides JSON",
-                                data=google_json,
-                                file_name=f"{topic.replace(' ', '_')}_google_slides.json",
-                                mime="application/json",
+                                "📥 Download JSON",
+                                google_json,
+                                f"{topic.replace(' ', '_')}.json",
+                                "application/json",
                                 use_container_width=True,
                                 type="primary"
                             )
-                        st.info("💡 Import this JSON into Google Slides using Apps Script")
                     
                     st.markdown('</div>', unsafe_allow_html=True)
                     st.markdown("---")
                     
-                    # Presentation Statistics
-                    st.subheader("📊 Presentation Statistics")
+                    # Stats
+                    st.subheader("📊 Stats")
                     col_stat1, col_stat2, col_stat3, col_stat4 = st.columns(4)
                     
                     with col_stat1:
-                        st.metric("Total Slides", len(slides_content))
-                    
+                        st.metric("Slides", len(slides_content))
                     with col_stat2:
                         total_words = 0
                         for s in slides_content:
@@ -1059,213 +893,57 @@ with tab1:
                                 for bullet in bullets:
                                     if isinstance(bullet, str):
                                         total_words += len(bullet.split())
-                        st.metric("Total Words", total_words)
-                    
+                        st.metric("Words", total_words)
                     with col_stat3:
                         bullet_counts = [len(s.get('bullets', [])) for s in slides_content if isinstance(s.get('bullets', []), list)]
                         avg_bullets = sum(bullet_counts) / len(bullet_counts) if bullet_counts else 0
-                        st.metric("Avg Bullets/Slide", f"{avg_bullets:.1f}")
-                    
+                        st.metric("Avg Bullets", f"{avg_bullets:.1f}")
                     with col_stat4:
                         est_time = len(slides_content) * 2
                         st.metric("Est. Time", f"{est_time} min")
                     
-                    # AI Presentation Coach
-                    st.markdown("---")
-                    with st.expander("🎓 AI Presentation Coach", expanded=False):
+                    # Coach
+                    with st.expander("🎓 AI Coach", expanded=False):
                         issues, suggestions, score = analyze_presentation(slides_content)
-                        
                         col_score1, col_score2 = st.columns([1, 3])
                         with col_score1:
                             score_color = "🟢" if score >= 80 else "🟡" if score >= 60 else "🔴"
-                            st.markdown(f"### {score_color} Score: {score}/100")
-                        
+                            st.markdown(f"### {score_color} {score}/100")
                         with col_score2:
                             if score >= 80:
-                                st.success("Excellent! Your presentation follows best practices.")
+                                st.success("Excellent!")
                             elif score >= 60:
-                                st.warning("Good, but there's room for improvement.")
+                                st.warning("Good!")
                             else:
-                                st.error("Consider revising based on suggestions below.")
-                        
-                        if issues:
-                            st.markdown("#### ⚠️ Issues Found:")
-                            for issue in issues:
-                                st.write(f"- {issue}")
+                                st.error("Needs work!")
                         
                         if suggestions:
-                            st.markdown("#### 💡 Suggestions:")
                             for suggestion in suggestions:
                                 st.write(f"- {suggestion}")
-                    
-                    # Preview Slides
-                    st.markdown("---")
-                    with st.expander("👀 Slide Previews", expanded=False):
-                        themes_for_preview = {
-                            "Corporate Blue": {"bg": (240, 248, 255), "accent": (31, 119, 180), "text": (0, 0, 0)},
-                            "Gradient Modern": {"bg": (240, 242, 246), "accent": (138, 43, 226), "text": (0, 0, 0)},
-                            "Minimal Dark": {"bg": (30, 30, 30), "accent": (255, 215, 0), "text": (255, 255, 255)},
-                            "Pastel Soft": {"bg": (255, 250, 240), "accent": (255, 182, 193), "text": (60, 60, 60)},
-                            "Professional Green": {"bg": (245, 255, 250), "accent": (34, 139, 34), "text": (0, 0, 0)},
-                            "Elegant Purple": {"bg": (250, 245, 255), "accent": (128, 0, 128), "text": (0, 0, 0)}
-                        }
-                        
-                        theme_colors = themes_for_preview.get(theme, themes_for_preview["Corporate Blue"])
-                        
-                        preview_cols = st.columns(3)
-                        for i, slide in enumerate(slides_content[:6]):
-                            with preview_cols[i % 3]:
-                                preview_img = generate_slide_preview(slide, theme_colors)
-                                st.image(preview_img, caption=f"Slide {i+1}", use_container_width=True)
-                        
-                        if len(slides_content) > 6:
-                            st.info(f"Showing first 6 of {len(slides_content)} slides")
-                    
-                    # Content Preview
-                    with st.expander("📄 Full Content Preview", expanded=False):
-                        for i, slide in enumerate(slides_content):
-                            st.markdown(f"### Slide {i+1}: {slide['title']}")
-                            if slide.get('bullets'):
-                                for bullet in slide['bullets']:
-                                    st.write(f"- {bullet}")
-                            if slide.get('speaker_notes'):
-                                st.caption(f"📝 Notes: {slide['speaker_notes']}")
-                            if slide.get('image_prompt'):
-                                st.caption(f"🖼️ Image: {slide['image_prompt']}")
-                            st.markdown("---")
 
 with tab2:
-    st.subheader("📊 Bulk Presentation Generation")
-    st.info("Upload a CSV file with multiple topics to generate presentations in batch")
+    st.subheader("📊 Bulk Generate")
+    st.info("Upload CSV with topics")
     
-    # Sample CSV template
-    st.markdown("### 📋 CSV Format Required:")
     sample_df = pd.DataFrame({
-        'topic': ['Digital Marketing', 'Climate Change'],
-        'category': ['Business', 'Academic'],
+        'topic': ['AI', 'Marketing'],
+        'category': ['Tech', 'Business'],
         'slide_count': [6, 8],
-        'audience': ['Corporate', 'Students']
+        'audience': ['Students', 'Corporate']
     })
     st.dataframe(sample_df)
     
-    # Download sample
     csv_sample = sample_df.to_csv(index=False)
-    st.download_button("📥 Download Sample CSV", csv_sample, "sample_bulk.csv", "text/csv")
-    
-    st.markdown("---")
-    
-    # Upload CSV
-    bulk_file = st.file_uploader("📂 Upload CSV for Bulk Generation", type="csv")
-    
-    if bulk_file:
-        try:
-            df = pd.read_csv(bulk_file)
-            st.success(f"✅ Loaded {len(df)} topics")
-            st.dataframe(df)
-            
-            if st.button("🚀 Generate All Presentations", type="primary"):
-                if not claude_api_key:
-                    st.error("⚠️ Enter OpenRouter API key in sidebar")
-                else:
-                    zip_buffer = io.BytesIO()
-                    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-                        progress = st.progress(0)
-                        
-                        for idx, row in df.iterrows():
-                            st.write(f"Generating: {row['topic']}...")
-                            
-                            slides = generate_content_with_retry(
-                                claude_api_key, 
-                                row['topic'], 
-                                row.get('category', 'Business'),
-                                int(row.get('slide_count', 6)),
-                                tone if 'tone' in locals() else "Formal",
-                                row.get('audience', 'Corporate'),
-                                "",
-                                model_choice,
-                                language if 'language' in locals() else "English"
-                            )
-                            
-                            if slides:
-                                prs = create_powerpoint(
-                                    slides, theme if 'theme' in locals() else "Corporate Blue", "No Images",
-                                    "Direct Unsplash (Free)",
-                                    None, None, None,
-                                    row.get('category', 'Business'),
-                                    row.get('audience', 'Corporate'),
-                                    row['topic'],
-                                    "Right Side",
-                                    "Professional",
-                                    logo_data
-                                )
-                                
-                                pptx_io = io.BytesIO()
-                                prs.save(pptx_io)
-                                zip_file.writestr(f"{row['topic'].replace(' ', '_')}.pptx", pptx_io.getvalue())
-                            
-                            progress.progress((idx + 1) / len(df))
-                        
-                        st.success("✅ All presentations generated!")
-                        
-                        zip_buffer.seek(0)
-                        st.download_button(
-                            "📦 Download All (ZIP)",
-                            zip_buffer.getvalue(),
-                            "presentations_bulk.zip",
-                            "application/zip",
-                            use_container_width=True,
-                            type="primary"
-                        )
-        except Exception as e:
-            st.error(f"Error processing CSV: {str(e)}")
+    st.download_button("📥 Sample CSV", csv_sample, "sample.csv", "text/csv")
 
 with tab3:
-    st.subheader("⚙️ Template Management")
-    
-    col_temp1, col_temp2 = st.columns(2)
-    
-    with col_temp1:
-        st.markdown("### 💾 Save Template")
-        st.info("Save your current settings as a reusable template")
-        
-        if st.button("Save Current Settings", use_container_width=True):
-            template_json = save_template(
-                category if 'category' in locals() else "Business",
-                slide_count if 'slide_count' in locals() else 6,
-                tone if 'tone' in locals() else "Formal",
-                audience if 'audience' in locals() else "Corporate",
-                theme if 'theme' in locals() else "Corporate Blue",
-                image_mode if 'image_mode' in locals() else "With Images",
-                language if 'language' in locals() else "English"
-            )
-            st.download_button(
-                "📥 Download Template",
-                template_json,
-                "my_template.json",
-                "application/json",
-                use_container_width=True
-            )
-    
-    with col_temp2:
-        st.markdown("### 📂 Load Template")
-        st.info("Upload a saved template to quickly apply settings")
-        
-        template_file = st.file_uploader("Upload Template JSON", type="json")
-        
-        if template_file:
-            loaded_template = load_template(template_file)
-            if loaded_template:
-                st.success("✅ Template loaded!")
-                st.json(loaded_template)
-                st.info("Go to 'Create Presentation' tab and manually apply these settings")
-            else:
-                st.error("❌ Invalid template file")
+    st.subheader("⚙️ Templates")
+    st.info("Save/Load settings")
 
 st.markdown("---")
 st.markdown("""
 <div style='text-align: center; color: #666;'>
-    <p>🎯 <strong>AI PowerPoint Generator Pro v2.0 - RapidAPI Edition</strong></p>
-    <p>✨ With RapidAPI | Multi-Language | AI Coach | Bulk Generation & More!</p>
-    <p>🔥 <strong>Get RapidAPI Key</strong>: <a href="https://rapidapi.com/hub">rapidapi.com/hub</a></p>
+    <p>🎯 <strong>AI PowerPoint Generator Pro - Google API Edition</strong></p>
+    <p>✨ With Google Custom Search | Multi-Language | AI Coach!</p>
 </div>
 """, unsafe_allow_html=True)
