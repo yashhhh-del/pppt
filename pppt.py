@@ -24,25 +24,19 @@ st.set_page_config(
     layout="wide"
 )
 
-# Initialize session state
+# Initialize ALL session state variables FIRST - CRITICAL!
 if 'generation_count' not in st.session_state:
     st.session_state.generation_count = 0
+if 'total_slides' not in st.session_state:
     st.session_state.total_slides = 0
+if 'slides_content' not in st.session_state:
     st.session_state.slides_content = None
+if 'edited_slides' not in st.session_state:
     st.session_state.edited_slides = None
+if 'final_pptx' not in st.session_state:
     st.session_state.final_pptx = None
-    st.session_state.google_searches_used = 0  # Track API usage
-
-# Load secrets safely
-def load_api_keys():
-    """Load API keys from secrets or return None"""
-    try:
-        google_api_key = st.secrets.get("google", {}).get("api_key", "")
-        google_cx = st.secrets.get("google", {}).get("cx", "")
-        pexels_api_key = st.secrets.get("pexels", {}).get("api_key", "")
-        return google_api_key, google_cx, pexels_api_key
-    except:
-        return "", "", ""
+if 'google_searches_used' not in st.session_state:
+    st.session_state.google_searches_used = 0
 
 # Custom CSS
 st.markdown("""
@@ -75,13 +69,6 @@ st.markdown("""
         border-radius: 15px;
         margin: 2rem 0;
         text-align: center;
-    }
-    .security-warning {
-        background: #fff3cd;
-        border: 2px solid #ffc107;
-        border-radius: 10px;
-        padding: 1rem;
-        margin: 1rem 0;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -118,50 +105,32 @@ with st.sidebar:
     # Image API Configuration
     st.subheader("🖼️ Image Configuration")
     
-    # Load from secrets first
-    default_google_key, default_google_cx, default_pexels_key = load_api_keys()
+    # Google API Key
+    google_api_key = st.text_input(
+        "Google API Key *", 
+        type="password",
+        help="Google Custom Search API Key"
+    )
     
-    # Security warning if keys are in secrets
-    if default_google_key:
-        st.success("✅ Google API key loaded from secrets")
-        use_secrets_google = st.checkbox("Use keys from secrets file", value=True)
-    else:
-        use_secrets_google = False
-        st.warning("⚠️ No Google API key in secrets file")
-    
-    # Google API Configuration
-    if use_secrets_google:
-        google_api_key = default_google_key
-        google_cx = default_google_cx
-        st.info(f"🔒 Using API key from secrets: `{google_api_key[:8]}...`")
-        st.info(f"🔒 Using CX from secrets: `{google_cx[:12]}...`")
-    else:
-        google_api_key = st.text_input(
-            "Google API Key *", 
-            type="password",
-            help="Google Custom Search API Key - Get from: https://console.cloud.google.com/"
-        )
-        
-        google_cx = st.text_input(
-            "Google Search Engine ID *",
-            help="Get it from: https://programmablesearchengine.google.com/",
-            placeholder="e.g., 6386765a3a8ed49a9"
-        )
+    # Custom Search Engine ID
+    google_cx = st.text_input(
+        "Google Search Engine ID *",
+        help="Get it from: https://programmablesearchengine.google.com/",
+        placeholder="e.g., 6386765a3a8ed49a9"
+    )
     
     if google_api_key and google_cx:
         st.success("✅ Google Image Search configured!")
+        st.info("💡 Using Google Custom Search API for images")
         
-        # Show API quota info
-        with st.expander("📊 API Quota Info"):
-            st.write("**Google Custom Search Limits:**")
-            st.write("- Free: 100 searches/day")
-            st.write("- Paid: $5 per 1,000 queries")
-            st.metric("Searches Used (This Session)", st.session_state.google_searches_used)
-            
+        # Show API usage
+        with st.expander("📊 API Usage"):
+            st.metric("Searches This Session", st.session_state.google_searches_used)
+            st.caption("Free: 100/day | Paid: $5 per 1,000")
             if st.session_state.google_searches_used > 50:
-                st.warning("⚠️ High API usage detected!")
+                st.warning("⚠️ High usage!")
     else:
-        st.warning("⚠️ Need API credentials for images")
+        st.warning("⚠️ Need Search Engine ID for images")
     
     # Image fallback options
     st.markdown("### 🔄 Fallback Image Sources")
@@ -169,15 +138,11 @@ with st.sidebar:
     use_pexels_fallback = st.checkbox("Use Pexels as fallback", value=False)
     
     if use_pexels_fallback:
-        if default_pexels_key and use_secrets_google:
-            pexels_api_key = default_pexels_key
-            st.info("🔒 Using Pexels key from secrets")
-        else:
-            pexels_api_key = st.text_input(
-                "Pexels API Key (Optional)", 
-                type="password",
-                help="FREE! Get it at: https://www.pexels.com/api/"
-            )
+        pexels_api_key = st.text_input(
+            "Pexels API Key (Optional)", 
+            type="password",
+            help="FREE! Get it at: https://www.pexels.com/api/"
+        )
     else:
         pexels_api_key = None
     
@@ -205,28 +170,16 @@ with st.sidebar:
     st.markdown("### 📖 How to Use")
     st.markdown("""
     1. Enter OpenRouter API key
-    2. Add Google credentials or use secrets
+    2. Add Google Search Engine ID
     3. Enter your presentation topic
     4. Click Generate!
     5. Download immediately!
     """)
     st.markdown("---")
     st.markdown("### 🔗 Get API Keys")
-    st.markdown("🔑 [Google Cloud Console](https://console.cloud.google.com/apis/credentials)")
-    st.markdown("🔍 [Google Custom Search](https://programmablesearchengine.google.com/)")
+    st.markdown("🔑 [Google Custom Search](https://programmablesearchengine.google.com/)")
     st.markdown("🆓 [Pexels API (FREE)](https://www.pexels.com/api/)")
-    st.markdown("🤖 [OpenRouter API](https://openrouter.ai/keys)")
-    
-    # Security tips
-    with st.expander("🔒 Security Tips"):
-        st.markdown("""
-        **Best Practices:**
-        1. ✅ Store API keys in `.streamlit/secrets.toml`
-        2. ✅ Add `secrets.toml` to `.gitignore`
-        3. ✅ Never commit API keys to Git
-        4. ✅ Regenerate keys if exposed
-        5. ✅ Use environment variables in production
-        """)
+    st.markdown("[OpenRouter API](https://openrouter.ai/keys)")
 
 # ============ IMAGE FUNCTIONS ============
 
@@ -234,23 +187,18 @@ def generate_topic_search_terms(main_topic, slide_title, image_prompt):
     """Generate search terms prioritizing topic relevance"""
     search_terms = []
     
-    # 1. AI's specific image prompt
     if image_prompt and image_prompt.strip():
         search_terms.append(image_prompt.strip())
     
-    # 2. Topic + slide title combined
     if main_topic and slide_title:
         search_terms.append(f"{main_topic} {slide_title}")
     
-    # 3. Just slide title
     if slide_title:
         search_terms.append(slide_title)
     
-    # 4. Just main topic
     if main_topic:
         search_terms.append(main_topic)
     
-    # Remove duplicates
     seen = set()
     unique = []
     for term in search_terms:
@@ -261,12 +209,9 @@ def generate_topic_search_terms(main_topic, slide_title, image_prompt):
     
     return unique
 
-# ============ GOOGLE IMAGE SEARCH ============
-
 def get_google_image(query, api_key, cx):
     """Get image using Google Custom Search API"""
     try:
-        # Increment usage counter
         st.session_state.google_searches_used += 1
         
         url = "https://www.googleapis.com/customsearch/v1"
@@ -289,8 +234,7 @@ def get_google_image(query, api_key, cx):
             data = response.json()
             
             if 'items' in data and len(data['items']) > 0:
-                # Try to get image from first result
-                for item in data['items'][:3]:  # Try first 3 results
+                for item in data['items'][:3]:
                     try:
                         image_url = item['link']
                         img_response = requests.get(image_url, timeout=10, headers={
@@ -298,25 +242,16 @@ def get_google_image(query, api_key, cx):
                         })
                         
                         if img_response.status_code == 200 and len(img_response.content) > 5000:
-                            # Validate it's actually an image
                             img = Image.open(io.BytesIO(img_response.content))
                             if img.size[0] > 300 and img.size[1] > 200:
                                 return img_response.content
                     except:
                         continue
-        elif response.status_code == 429:
-            st.warning(f"      ⚠️ Google API rate limit reached!")
-            return None
-        elif response.status_code == 403:
-            st.error(f"      ❌ Google API: Invalid credentials or quota exceeded")
-            return None
         
         return None
     except Exception as e:
         st.write(f"      ⚠️ Google Search error: {str(e)}")
         return None
-
-# ============ FALLBACK IMAGE SOURCES ============
 
 def get_unsplash_image(query, width=800, height=600):
     """Get image from Unsplash Direct (Free)"""
@@ -370,23 +305,18 @@ def get_pexels_image(query, api_key):
     except:
         return None
 
-# ============ UNIFIED IMAGE RETRIEVAL ============
-
 def get_topic_relevant_image(main_topic, slide_title, image_prompt, google_api_key, google_cx, use_unsplash, use_pexels, pexels_key):
     """Get highly relevant image using Google + fallbacks"""
     
     st.write(f"   🎯 Topic: {main_topic}")
     st.write(f"   📄 Slide: {slide_title}")
     
-    # Generate search terms
     search_terms = generate_topic_search_terms(main_topic, slide_title, image_prompt)
     st.write(f"   🔍 Will try {len(search_terms)} search variations")
     
-    # Try each search term
     for i, term in enumerate(search_terms, 1):
         st.write(f"      → Search {i}: '{term}'")
         
-        # Try Google Image Search first
         if google_api_key and google_cx:
             st.write(f"         🔍 Searching Google...")
             image_data = get_google_image(term, google_api_key, google_cx)
@@ -394,7 +324,6 @@ def get_topic_relevant_image(main_topic, slide_title, image_prompt, google_api_k
                 st.write(f"      ✅ Found on Google!")
                 return image_data
         
-        # Try Pexels fallback
         if use_pexels and pexels_key:
             st.write(f"         🔍 Trying Pexels fallback...")
             image_data = get_pexels_image(term, pexels_key)
@@ -402,7 +331,6 @@ def get_topic_relevant_image(main_topic, slide_title, image_prompt, google_api_k
                 st.write(f"      ✅ Found on Pexels!")
                 return image_data
         
-        # Try Unsplash fallback
         if use_unsplash:
             st.write(f"         🔍 Trying Unsplash fallback...")
             image_data = get_unsplash_image(term)
@@ -410,7 +338,6 @@ def get_topic_relevant_image(main_topic, slide_title, image_prompt, google_api_k
                 st.write(f"      ✅ Found on Unsplash!")
                 return image_data
     
-    # Final fallback to generic topic
     st.write(f"   🆘 Trying generic fallback...")
     fallback = main_topic.split()[0] if main_topic else "business"
     
@@ -433,7 +360,6 @@ def get_topic_relevant_image(main_topic, slide_title, image_prompt, google_api_k
 def generate_content_with_claude(api_key, topic, category, slide_count, tone, audience, key_points, model_choice, language):
     """Generate presentation content using AI"""
     try:
-        # Model selection logic
         if "Gemini" in model_choice:
             model = "google/gemini-2.0-flash-exp:free"
         elif "Llama" in model_choice:
@@ -501,7 +427,6 @@ Return ONLY JSON, no markdown."""
             data = response.json()
             content_text = data["choices"][0]["message"]["content"]
             
-            # Clean JSON
             content_text = content_text.strip()
             if content_text.startswith("```json"):
                 content_text = content_text[7:]
@@ -514,7 +439,6 @@ Return ONLY JSON, no markdown."""
             slides_data = json.loads(content_text)
             return slides_data["slides"]
         else:
-            # Enhanced error handling
             if response.status_code == 429:
                 st.error(f"⏱️ Rate Limit: Model is temporarily unavailable")
                 st.info("💡 **Solutions:**\n- Wait 30-60 seconds and try again\n- Switch to a different free model above\n- Use Claude 3.5 Sonnet (paid but reliable)")
@@ -1011,7 +935,7 @@ with tab3:
 st.markdown("---")
 st.markdown("""
 <div style='text-align: center; color: #666;'>
-    <p>🎯 <strong>AI PowerPoint Generator Pro - Secure Edition</strong></p>
-    <p>✨ Enhanced Security | Google API | Multi-Language Support</p>
+    <p>🎯 <strong>AI PowerPoint Generator Pro - Google API Edition</strong></p>
+    <p>✨ With Google Custom Search | Multi-Language | AI Coach!</p>
 </div>
 """, unsafe_allow_html=True)
