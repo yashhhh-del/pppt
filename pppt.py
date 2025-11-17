@@ -644,17 +644,37 @@ def repair_truncated_json(json_text):
     
     return None
 
-def generate_content_with_claude(api_key, topic, category, slide_count, tone, audience, key_points, model_choice, language):
+def generate_content_with_claude(api_key, topic, category, slide_count, tone, audience, key_points, model_choice, language, grok_api_key=None):
     """Generate presentation content using AI"""
     try:
-        if "Gemini" in model_choice:
-            model = "google/gemini-2.0-flash-exp:free"
-        elif "Llama" in model_choice:
-            model = "meta-llama/llama-3.2-3b-instruct:free"
-        elif "Mistral" in model_choice:
-            model = "mistralai/mistral-7b-instruct:free"
+        # Determine which API to use
+        use_grok_api = "Grok" in model_choice and grok_api_key
+        
+        if use_grok_api:
+            if "Grok-2" in model_choice:
+                model = "grok-2-latest"
+            else:  # Grok-Beta
+                model = "grok-beta"
+            api_url = "https://api.x.ai/v1/chat/completions"
+            headers = {
+                "Authorization": f"Bearer {grok_api_key.strip()}",
+                "Content-Type": "application/json",
+            }
         else:
-            model = "anthropic/claude-3.5-sonnet"
+            # Use OpenRouter
+            if "Gemini" in model_choice:
+                model = "google/gemini-2.0-flash-exp:free"
+            elif "Llama" in model_choice:
+                model = "meta-llama/llama-3.2-3b-instruct:free"
+            elif "Mistral" in model_choice:
+                model = "mistralai/mistral-7b-instruct:free"
+            else:
+                model = "anthropic/claude-3.5-sonnet"
+            api_url = "https://openrouter.ai/api/v1/chat/completions"
+            headers = {
+                "Authorization": f"Bearer {api_key.strip()}",
+                "Content-Type": "application/json",
+            }
         
         # Increase token limit significantly to avoid truncation
         calculated_tokens = min(slide_count * 350 + 500, 4000)
@@ -683,11 +703,8 @@ IMPORTANT:
 - Return ONLY valid JSON"""
 
         response = requests.post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {api_key.strip()}",
-                "Content-Type": "application/json",
-            },
+            api_url,
+            headers=headers,
             json={
                 "model": model,
                 "max_tokens": calculated_tokens,
@@ -723,12 +740,14 @@ IMPORTANT:
         else:
             if response.status_code == 429:
                 st.error(f"⏱️ Rate Limit: Model is temporarily unavailable")
-                st.info("💡 **Solutions:**\n- Wait 30-60 seconds and try again\n- Switch to a different free model above\n- Use Claude 3.5 Sonnet (paid but reliable)")
+                st.info("💡 **Solutions:**\n- Wait 30-60 seconds and try again\n- Switch to a different model above\n- Check your API quota")
                 raise Exception("Rate limit - retry needed")
             elif response.status_code == 402:
                 st.error("💳 Insufficient credits! Reduce slides or add credits.")
+            elif response.status_code == 401:
+                st.error("🔑 Invalid API key. Please check your API key.")
             else:
-                st.error(f"API Error: {response.text}")
+                st.error(f"API Error ({response.status_code}): {response.text}")
             return None
             
     except json.JSONDecodeError as e:
@@ -741,11 +760,11 @@ IMPORTANT:
         st.error(f"Error: {str(e)}")
         return None
 
-def generate_content_with_retry(api_key, topic, category, slide_count, tone, audience, key_points, model_choice, language, max_retries=3):
+def generate_content_with_retry(api_key, topic, category, slide_count, tone, audience, key_points, model_choice, language, grok_api_key=None, max_retries=3):
     """Generate content with automatic retry on rate limit"""
     for attempt in range(max_retries):
         try:
-            result = generate_content_with_claude(api_key, topic, category, slide_count, tone, audience, key_points, model_choice, language)
+            result = generate_content_with_claude(api_key, topic, category, slide_count, tone, audience, key_points, model_choice, language, grok_api_key)
             if result:
                 return result
         except Exception as e:
@@ -979,10 +998,26 @@ with st.sidebar:
                 "Free Model (Google Gemini Flash)",
                 "Free Model (Meta Llama 3.2)",
                 "Free Model (Mistral 7B)",
+                "Grok-2 (xAI)",
+                "Grok-Beta (xAI Free)",
                 "Claude 3.5 Sonnet (Paid)"
             ],
-            help="Try different free models if one is rate-limited"
+            help="Try different models if one is rate-limited"
         )
+        
+        # Show Grok API key input if Grok is selected
+        grok_api_key = None
+        if "Grok" in model_choice:
+            grok_api_key = st.text_input(
+                "Grok/xAI API Key", 
+                type="password",
+                help="Get your API key from https://console.x.ai/"
+            )
+            if grok_api_key:
+                st.success("✅ Grok API configured!")
+            else:
+                st.warning("⚠️ Enter Grok API key for xAI models")
+            st.markdown("[🔗 Get Grok API Key](https://console.x.ai/)")
         
         if "Free" in model_choice:
             st.info("💡 Free models share rate limits")
@@ -1231,8 +1266,23 @@ with tab1:
     
     # Generation Logic
     if generate_button:
-        if not claude_api_key:
-            st.error("⚠️ Please enter your OpenRouter API key in the sidebar")
+        # Validation
+        has_valid_api = False
+        error_message = ""
+        
+        if "Grok" in model_choice:
+            if grok_api_key:
+                has_valid_api = True
+            else:
+                error_message = "⚠️ Please enter your Grok/xAI API key in the sidebar"
+        else:
+            if claude_api_key:
+                has_valid_api = True
+            else:
+                error_message = "⚠️ Please enter your OpenRouter API key in the sidebar"
+        
+        if not has_valid_api:
+            st.error(error_message)
         elif not topic:
             st.error("⚠️ Please enter a presentation topic")
         elif image_mode == "With Images" and not google_cx and not use_unsplash_fallback:
@@ -1242,7 +1292,8 @@ with tab1:
                 slides_content = generate_content_with_retry(
                     claude_api_key, topic, category, slide_count, 
                     tone, audience, key_points if 'key_points' in dir() else "", 
-                    model_choice, language
+                    model_choice, language, 
+                    grok_api_key=grok_api_key if 'grok_api_key' in dir() else None
                 )
                 
                 if slides_content:
