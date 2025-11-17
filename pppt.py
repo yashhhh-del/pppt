@@ -1,6 +1,18 @@
 New chat
 
-import streamlit as st import requests import base64 import io from pptx import Presentation from pptx.util import Inches, Pt from pptx.enum.text import PP_ALIGN from pptx.dml.color import RGBColor from PIL import Image import time import json import pandas as pd import zipfile import m
+import streamlit as st 
+import requests 
+import base64 
+import io from pptx 
+import Presentation from pptx.util 
+import Inches, Pt from pptx.enum.text 
+import PP_ALIGN from pptx.dml.color 
+import RGBColor from PIL 
+import Image 
+import time 
+import json 
+import pandas as pd 
+import zipfile import m
 
 pasted
 
@@ -2006,3 +2018,4 @@ st.markdown("""
     <p><small>Version 2.0 - Built with Streamlit</small></p>
 </div>
 """, unsafe_allow_html=True)
+
