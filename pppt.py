@@ -700,21 +700,40 @@ def generate_content_with_claude(api_key, topic, category, slide_count, tone, au
 Create a {slide_count}-slide presentation about: {topic}
 
 Category: {category} | Tone: {tone} | Audience: {audience}
-{f"Include: {key_points}" if key_points else ""}
+{f"Include these points: {key_points}" if key_points else ""}
 
-Return ONLY this JSON format (no other text):
+Return ONLY valid JSON (no markdown, no extra text):
 {{"slides": [
-  {{"title": "Title", "bullets": [], "image_prompt": "image desc", "speaker_notes": "notes"}},
-  {{"title": "Slide 2", "bullets": ["point1", "point2", "point3"], "image_prompt": "image desc", "speaker_notes": "notes"}}
+  {{
+    "title": "Main Title of Presentation",
+    "bullets": [],
+    "image_prompt": "professional {topic} banner",
+    "speaker_notes": "Welcome and introduction"
+  }},
+  {{
+    "title": "Key Point Title",
+    "bullets": ["First important point about the topic", "Second key insight or fact", "Third supporting detail", "Fourth actionable item"],
+    "image_prompt": "{topic} concept",
+    "speaker_notes": "Explain these points in detail"
+  }},
+  {{
+    "title": "Another Section",
+    "bullets": ["Specific detail one", "Specific detail two", "Specific detail three"],
+    "image_prompt": "{topic} illustration",
+    "speaker_notes": "Discuss the implications"
+  }}
 ]}}
 
-IMPORTANT:
-- Keep bullets SHORT (max 10 words each)
-- Keep speaker_notes BRIEF (max 20 words)
-- Keep image_prompt SHORT (max 5 words)
-- Use simple words, no special characters
-- Total {slide_count} slides exactly
-- Return ONLY valid JSON"""
+CRITICAL REQUIREMENTS:
+1. First slide is TITLE ONLY (empty bullets array)
+2. ALL OTHER SLIDES MUST have 3-5 bullet points
+3. Each bullet must be a complete, informative sentence (8-15 words)
+4. Bullets should contain actual content, facts, or insights about {topic}
+5. Do NOT leave bullets empty for content slides
+6. Total: exactly {slide_count} slides
+7. Return ONLY the JSON object, nothing else
+
+Generate {slide_count} slides now with detailed content:"""
 
         response = requests.post(
             api_url,
@@ -742,9 +761,37 @@ IMPORTANT:
                     st.error("No slides were generated. Please try again.")
                     return None
                 
+                # Validate and fix slide content
+                for i, slide in enumerate(slides):
+                    # Ensure bullets exist and is a list
+                    if 'bullets' not in slide:
+                        slide['bullets'] = []
+                    elif not isinstance(slide['bullets'], list):
+                        slide['bullets'] = [str(slide['bullets'])]
+                    
+                    # For non-title slides, ensure we have content
+                    if i > 0 and len(slide['bullets']) == 0:
+                        st.warning(f"⚠️ Slide {i+1} '{slide['title']}' has no bullet points. This may indicate truncated content.")
+                    
+                    # Ensure other fields exist
+                    if 'image_prompt' not in slide:
+                        slide['image_prompt'] = slide.get('title', topic)
+                    if 'speaker_notes' not in slide:
+                        slide['speaker_notes'] = ""
+                
+                # Count slides with actual content
+                content_slides = sum(1 for s in slides[1:] if len(s.get('bullets', [])) > 0)
+                if content_slides == 0 and len(slides) > 1:
+                    st.error("❌ No slide content was generated. The AI returned empty slides. Please try again or switch models.")
+                    return None
+                
                 # Warn if truncated
                 if len(slides) < slide_count:
                     st.warning(f"⚠️ Only {len(slides)} slides generated (requested {slide_count}). The AI response was truncated. Try reducing slide count or using a paid model.")
+                
+                # Show content summary
+                total_bullets = sum(len(s.get('bullets', [])) for s in slides)
+                st.success(f"✅ Generated {len(slides)} slides with {total_bullets} bullet points total.")
                 
                 return slides
             else:
@@ -1519,6 +1566,25 @@ with tab1:
                     with col_stat4:
                         est_time = len(slides_content) * 2
                         st.metric("Est. Presentation Time", f"{est_time} min")
+                    
+                    # Content Preview - Show what was generated
+                    with st.expander("📄 **Preview Generated Content**", expanded=True):
+                        for idx, slide in enumerate(slides_content):
+                            st.markdown(f"### Slide {idx + 1}: {slide['title']}")
+                            
+                            if slide.get('bullets') and len(slide['bullets']) > 0:
+                                for bullet in slide['bullets']:
+                                    st.markdown(f"• {bullet}")
+                            else:
+                                if idx == 0:
+                                    st.caption("*Title slide - no bullet points*")
+                                else:
+                                    st.warning("⚠️ No content for this slide")
+                            
+                            if slide.get('speaker_notes'):
+                                st.caption(f"📝 Notes: {slide['speaker_notes']}")
+                            
+                            st.markdown("---")
                     
                     # AI Coach
                     with st.expander("🎓 AI Presentation Coach", expanded=True):
