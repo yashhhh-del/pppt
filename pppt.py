@@ -663,10 +663,12 @@ def generate_content_with_claude(api_key, topic, category, slide_count, tone, au
                 "Content-Type": "application/json",
             }
         elif use_grok_api:
-            if "Grok-2" in model_choice:
+            if "Grok-4" in model_choice:
+                model = "grok-4-latest"
+            elif "Grok-3" in model_choice:
+                model = "grok-3-latest"
+            else:  # Grok-2
                 model = "grok-2-latest"
-            else:  # Grok-Beta
-                model = "grok-beta"
             api_url = "https://api.x.ai/v1/chat/completions"
             headers = {
                 "Authorization": f"Bearer {grok_api_key.strip()}",
@@ -1068,8 +1070,9 @@ with st.sidebar:
                 "Free Model (Mistral 7B)",
                 "Groq (Llama 3.3 70B) - FREE & FAST",
                 "Groq (Mixtral 8x7B) - FREE",
-                "Grok-2 (xAI - Paid)",
-                "Grok-Beta (xAI - Paid)",
+                "Grok-4 Latest (xAI)",
+                "Grok-3 (xAI)",
+                "Grok-2 (xAI)",
                 "Claude 3.5 Sonnet (Paid)"
             ],
             help="Try different models if one is rate-limited"
@@ -1101,7 +1104,7 @@ with st.sidebar:
         # Show Grok API key input if Grok is selected
         grok_api_key = None
         if "Grok" in model_choice:
-            st.markdown("### ⚠️ Grok/xAI API (PAID)")
+            st.markdown("### 🤖 Grok/xAI API")
             grok_api_key = st.text_input(
                 "Grok/xAI API Key", 
                 type="password",
@@ -1110,20 +1113,13 @@ with st.sidebar:
             )
             if grok_api_key:
                 if grok_api_key.startswith("xai-"):
-                    st.success("✅ Grok API key format looks correct!")
+                    st.success("✅ Grok API key configured!")
                 else:
                     st.warning("⚠️ Grok keys usually start with 'xai-'")
             else:
                 st.warning("⚠️ Enter Grok API key for xAI models")
             st.markdown("[🔗 Get Grok API Key](https://console.x.ai/)")
-            st.error("""
-            ⚠️ **Grok requires purchased credits!**
-            
-            **Better option:** Use **Groq (FREE)** instead:
-            - Select "Groq (Llama 3.3 70B)" above
-            - It's completely FREE
-            - Faster than Grok
-            """)
+            st.info("💡 Using Grok-4 Latest - xAI's most powerful model!")
         
         if "Free" in model_choice:
             st.info("💡 Free models share rate limits")
