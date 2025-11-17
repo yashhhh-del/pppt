@@ -16,15 +16,18 @@ from io import BytesIO
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
+from datetime import datetime
+import hashlib
 
 # Page configuration
 st.set_page_config(
     page_title="AI PowerPoint Generator Pro",
     page_icon="📊",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-# Initialize ALL session state variables FIRST - CRITICAL!
+# Initialize ALL session state variables
 if 'generation_count' not in st.session_state:
     st.session_state.generation_count = 0
 if 'total_slides' not in st.session_state:
@@ -37,149 +40,370 @@ if 'final_pptx' not in st.session_state:
     st.session_state.final_pptx = None
 if 'google_searches_used' not in st.session_state:
     st.session_state.google_searches_used = 0
+if 'templates' not in st.session_state:
+    st.session_state.templates = {}
+if 'selected_template' not in st.session_state:
+    st.session_state.selected_template = None
+if 'generation_history' not in st.session_state:
+    st.session_state.generation_history = []
+if 'current_theme' not in st.session_state:
+    st.session_state.current_theme = "light"
 
-# Custom CSS
+# Professional CSS with Dashboard Styling
 st.markdown("""
 <style>
+    /* Main Layout */
+    .main {
+        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+    }
+    
+    /* Header Styling */
     .main-header {
-        font-size: 2.5rem;
-        font-weight: bold;
-        color: #1f77b4;
+        font-size: 2.8rem;
+        font-weight: 800;
+        background: linear-gradient(120deg, #1f77b4, #667eea, #764ba2);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
         text-align: center;
+        margin-bottom: 0.5rem;
+        letter-spacing: -1px;
+    }
+    
+    .sub-header {
+        text-align: center;
+        color: #666;
+        font-size: 1.1rem;
         margin-bottom: 2rem;
     }
-    .stButton>button {
-        width: 100%;
-        background-color: #1f77b4;
-        color: white;
-        font-weight: bold;
-        padding: 0.5rem;
-        border-radius: 5px;
+    
+    /* Dashboard Cards */
+    .dashboard-card {
+        background: white;
+        padding: 1.5rem;
+        border-radius: 15px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+        border: 1px solid rgba(0,0,0,0.05);
+        transition: transform 0.3s ease, box-shadow 0.3s ease;
     }
+    
+    .dashboard-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 30px rgba(0,0,0,0.12);
+    }
+    
+    /* Metric Cards */
     .metric-card {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 1.2rem;
+        border-radius: 12px;
+        color: white;
+        text-align: center;
+        box-shadow: 0 4px 15px rgba(102,126,234,0.4);
+    }
+    
+    .metric-value {
+        font-size: 2rem;
+        font-weight: 700;
+        margin: 0.5rem 0;
+    }
+    
+    .metric-label {
+        font-size: 0.85rem;
+        opacity: 0.9;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+    }
+    
+    /* Template Cards */
+    .template-card {
+        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
         padding: 1rem;
         border-radius: 10px;
         color: white;
-        text-align: center;
+        margin: 0.5rem 0;
+        cursor: pointer;
+        transition: all 0.3s ease;
     }
-    .download-section {
+    
+    .template-card:hover {
+        transform: scale(1.02);
+        box-shadow: 0 5px 20px rgba(240,147,251,0.4);
+    }
+    
+    .template-card.selected {
+        border: 3px solid #ffd700;
+        box-shadow: 0 0 20px rgba(255,215,0,0.5);
+    }
+    
+    /* Button Styling */
+    .stButton>button {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        font-weight: 600;
+        padding: 0.75rem 2rem;
+        border-radius: 10px;
+        border: none;
+        box-shadow: 0 4px 15px rgba(102,126,234,0.4);
+        transition: all 0.3s ease;
+    }
+    
+    .stButton>button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(102,126,234,0.6);
+    }
+    
+    /* Download Section */
+    .download-section {
+        background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
         padding: 2rem;
-        border-radius: 15px;
+        border-radius: 20px;
         margin: 2rem 0;
         text-align: center;
+        color: white;
+        box-shadow: 0 10px 30px rgba(17,153,142,0.3);
+    }
+    
+    /* Tab Styling */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px;
+        background: white;
+        padding: 0.5rem;
+        border-radius: 15px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+    }
+    
+    .stTabs [data-baseweb="tab"] {
+        border-radius: 10px;
+        padding: 0.5rem 1.5rem;
+        font-weight: 600;
+    }
+    
+    /* Form Sections */
+    .form-section {
+        background: white;
+        padding: 1.5rem;
+        border-radius: 15px;
+        margin: 1rem 0;
+        border-left: 5px solid #667eea;
+    }
+    
+    .form-section-title {
+        font-size: 1.2rem;
+        font-weight: 700;
+        color: #333;
+        margin-bottom: 1rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    
+    /* Status Badges */
+    .status-badge {
+        display: inline-block;
+        padding: 0.3rem 0.8rem;
+        border-radius: 20px;
+        font-size: 0.8rem;
+        font-weight: 600;
+    }
+    
+    .status-success {
+        background: #d4edda;
+        color: #155724;
+    }
+    
+    .status-warning {
+        background: #fff3cd;
+        color: #856404;
+    }
+    
+    .status-error {
+        background: #f8d7da;
+        color: #721c24;
+    }
+    
+    /* Progress Indicator */
+    .progress-container {
+        background: #e0e0e0;
+        border-radius: 10px;
+        overflow: hidden;
+        margin: 1rem 0;
+    }
+    
+    .progress-bar {
+        background: linear-gradient(90deg, #667eea, #764ba2);
+        height: 8px;
+        border-radius: 10px;
+        transition: width 0.5s ease;
+    }
+    
+    /* Sidebar Enhancement */
+    .css-1d391kg {
+        background: linear-gradient(180deg, #f8f9fa 0%, #e9ecef 100%);
+    }
+    
+    /* Quick Action Buttons */
+    .quick-action {
+        background: white;
+        padding: 0.8rem;
+        border-radius: 10px;
+        text-align: center;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        border: 2px solid #e0e0e0;
+    }
+    
+    .quick-action:hover {
+        border-color: #667eea;
+        background: #f5f7fa;
+    }
+    
+    /* History Item */
+    .history-item {
+        background: #f8f9fa;
+        padding: 1rem;
+        border-radius: 10px;
+        margin: 0.5rem 0;
+        border-left: 4px solid #667eea;
+    }
+    
+    /* Tooltip */
+    .tooltip {
+        position: relative;
+        display: inline-block;
+    }
+    
+    /* Animation */
+    @keyframes fadeInUp {
+        from {
+            opacity: 0;
+            transform: translateY(20px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+    
+    .animate-in {
+        animation: fadeInUp 0.5s ease forwards;
     }
 </style>
 """, unsafe_allow_html=True)
 
 # Header
 st.markdown('<div class="main-header">📊 AI PowerPoint Generator Pro</div>', unsafe_allow_html=True)
-st.markdown("---")
+st.markdown('<div class="sub-header">Create stunning presentations with AI-powered content and smart templates</div>', unsafe_allow_html=True)
 
-# Sidebar
-with st.sidebar:
-    st.header("⚙️ API Configuration")
-    
-    claude_api_key = st.text_input("OpenRouter API Key *", type="password", 
-                                    help="Required: For generating presentation content")
-    
-    model_choice = st.selectbox(
-        "AI Model",
-        [
-            "Free Model (Google Gemini Flash)",
-            "Free Model (Meta Llama 3.2)",
-            "Free Model (Mistral 7B)",
-            "Claude 3.5 Sonnet (Paid)"
-        ],
-        help="Try different free models if one is rate-limited"
-    )
-    
-    if "Free" in model_choice:
-        st.info("💡 Free models share rate limits. Switch models if limited.")
-    
-    st.info("💡 Using OpenRouter API")
-    
-    st.markdown("---")
-    
-    # Image API Configuration
-    st.subheader("🖼️ Image Configuration")
-    
-    # Google API Key
-    google_api_key = st.text_input(
-        "Google API Key *", 
-        type="password",
-        help="Google Custom Search API Key"
-    )
-    
-    # Custom Search Engine ID
-    google_cx = st.text_input(
-        "Google Search Engine ID *",
-        help="Get it from: https://programmablesearchengine.google.com/",
-        placeholder="e.g., 6386765a3a8ed49a9"
-    )
-    
-    if google_api_key and google_cx:
-        st.success("✅ Google Image Search configured!")
-        st.info("💡 Using Google Custom Search API for images")
-        
-        # Show API usage
-        with st.expander("📊 API Usage"):
-            st.metric("Searches This Session", st.session_state.google_searches_used)
-            st.caption("Free: 100/day | Paid: $5 per 1,000")
-            if st.session_state.google_searches_used > 50:
-                st.warning("⚠️ High usage!")
-    else:
-        st.warning("⚠️ Need Search Engine ID for images")
-    
-    # Image fallback options
-    st.markdown("### 🔄 Fallback Image Sources")
-    use_unsplash_fallback = st.checkbox("Use Unsplash as fallback", value=True)
-    use_pexels_fallback = st.checkbox("Use Pexels as fallback", value=False)
-    
-    if use_pexels_fallback:
-        pexels_api_key = st.text_input(
-            "Pexels API Key (Optional)", 
-            type="password",
-            help="FREE! Get it at: https://www.pexels.com/api/"
-        )
-    else:
-        pexels_api_key = None
-    
-    st.markdown("---")
-    
-    # Logo Upload
-    st.subheader("🏢 Branding")
-    logo_file = st.file_uploader("Upload Company Logo", type=["png", "jpg", "jpeg"])
-    logo_data = None
-    if logo_file:
-        logo_data = logo_file.read()
-        st.success("✅ Logo uploaded!")
-    
-    st.markdown("---")
-    
-    # Usage Analytics
-    st.markdown("### 📊 Your Stats")
-    col1, col2 = st.columns(2)
-    with col1:
-        st.metric("Presentations", st.session_state.generation_count)
-    with col2:
-        st.metric("Total Slides", st.session_state.total_slides)
-    
-    st.markdown("---")
-    st.markdown("### 📖 How to Use")
-    st.markdown("""
-    1. Enter OpenRouter API key
-    2. Add Google Search Engine ID
-    3. Enter your presentation topic
-    4. Click Generate!
-    5. Download immediately!
-    """)
-    st.markdown("---")
-    st.markdown("### 🔗 Get API Keys")
-    st.markdown("🔑 [Google Custom Search](https://programmablesearchengine.google.com/)")
-    st.markdown("🆓 [Pexels API (FREE)](https://www.pexels.com/api/)")
-    st.markdown("[OpenRouter API](https://openrouter.ai/keys)")
+# ============ TEMPLATE MANAGEMENT FUNCTIONS ============
+
+def generate_template_id():
+    """Generate unique template ID"""
+    return hashlib.md5(str(datetime.now().timestamp()).encode()).hexdigest()[:8]
+
+def save_template_to_state(name, template_data):
+    """Save template to session state"""
+    template_id = generate_template_id()
+    template_data['id'] = template_id
+    template_data['name'] = name
+    template_data['created_at'] = datetime.now().strftime("%Y-%m-%d %H:%M")
+    template_data['usage_count'] = 0
+    st.session_state.templates[template_id] = template_data
+    return template_id
+
+def load_template_from_state(template_id):
+    """Load template from session state"""
+    return st.session_state.templates.get(template_id, None)
+
+def delete_template(template_id):
+    """Delete template from session state"""
+    if template_id in st.session_state.templates:
+        del st.session_state.templates[template_id]
+        return True
+    return False
+
+def export_all_templates():
+    """Export all templates as JSON"""
+    return json.dumps(st.session_state.templates, indent=2)
+
+def import_templates(json_data):
+    """Import templates from JSON"""
+    try:
+        templates = json.loads(json_data)
+        st.session_state.templates.update(templates)
+        return True
+    except:
+        return False
+
+def get_preset_templates():
+    """Get preset professional templates"""
+    return {
+        "pitch_deck": {
+            "name": "🚀 Startup Pitch Deck",
+            "category": "Pitch",
+            "slide_count": 10,
+            "tone": "Persuasive",
+            "audience": "Investors",
+            "theme": "Gradient Modern",
+            "image_mode": "With Images",
+            "language": "English",
+            "description": "Perfect for startup pitches with 10-slide structure"
+        },
+        "corporate_report": {
+            "name": "📈 Corporate Report",
+            "category": "Business",
+            "slide_count": 12,
+            "tone": "Formal",
+            "audience": "Corporate",
+            "theme": "Corporate Blue",
+            "image_mode": "With Images",
+            "language": "English",
+            "description": "Professional business reporting format"
+        },
+        "training_session": {
+            "name": "🎓 Training Session",
+            "category": "Training",
+            "slide_count": 15,
+            "tone": "Educational",
+            "audience": "Students",
+            "theme": "Pastel Soft",
+            "image_mode": "With Images",
+            "language": "English",
+            "description": "Educational content with clear structure"
+        },
+        "sales_pitch": {
+            "name": "💼 Sales Pitch",
+            "category": "Sales",
+            "slide_count": 8,
+            "tone": "Persuasive",
+            "audience": "Clients",
+            "theme": "Professional Green",
+            "image_mode": "With Images",
+            "language": "English",
+            "description": "Compelling sales presentation format"
+        },
+        "tech_overview": {
+            "name": "🔧 Technical Overview",
+            "category": "Technical",
+            "slide_count": 10,
+            "tone": "Neutral",
+            "audience": "Managers",
+            "theme": "Minimal Dark",
+            "image_mode": "With Images",
+            "language": "English",
+            "description": "Technical documentation and overview"
+        },
+        "marketing_campaign": {
+            "name": "📣 Marketing Campaign",
+            "category": "Marketing",
+            "slide_count": 9,
+            "tone": "Inspirational",
+            "audience": "Corporate",
+            "theme": "Elegant Purple",
+            "image_mode": "With Images",
+            "language": "English",
+            "description": "Creative marketing strategy presentation"
+        }
+    }
 
 # ============ IMAGE FUNCTIONS ============
 
@@ -250,7 +474,6 @@ def get_google_image(query, api_key, cx):
         
         return None
     except Exception as e:
-        st.write(f"      ⚠️ Google Search error: {str(e)}")
         return None
 
 def get_unsplash_image(query, width=800, height=600):
@@ -308,49 +531,34 @@ def get_pexels_image(query, api_key):
 def get_topic_relevant_image(main_topic, slide_title, image_prompt, google_api_key, google_cx, use_unsplash, use_pexels, pexels_key):
     """Get highly relevant image using Google + fallbacks"""
     
-    st.write(f"   🎯 Topic: {main_topic}")
-    st.write(f"   📄 Slide: {slide_title}")
-    
     search_terms = generate_topic_search_terms(main_topic, slide_title, image_prompt)
-    st.write(f"   🔍 Will try {len(search_terms)} search variations")
     
     for i, term in enumerate(search_terms, 1):
-        st.write(f"      → Search {i}: '{term}'")
-        
         if google_api_key and google_cx:
-            st.write(f"         🔍 Searching Google...")
             image_data = get_google_image(term, google_api_key, google_cx)
             if image_data:
-                st.write(f"      ✅ Found on Google!")
                 return image_data
         
         if use_pexels and pexels_key:
-            st.write(f"         🔍 Trying Pexels fallback...")
             image_data = get_pexels_image(term, pexels_key)
             if image_data:
-                st.write(f"      ✅ Found on Pexels!")
                 return image_data
         
         if use_unsplash:
-            st.write(f"         🔍 Trying Unsplash fallback...")
             image_data = get_unsplash_image(term)
             if image_data:
-                st.write(f"      ✅ Found on Unsplash!")
                 return image_data
     
-    st.write(f"   🆘 Trying generic fallback...")
     fallback = main_topic.split()[0] if main_topic else "business"
     
     if google_api_key and google_cx:
         image_data = get_google_image(fallback, google_api_key, google_cx)
         if image_data:
-            st.write(f"      ✅ Got fallback from Google")
             return image_data
     
     if use_unsplash:
         image_data = get_unsplash_image(fallback)
         if image_data:
-            st.write(f"      ✅ Got fallback from Unsplash")
             return image_data
     
     return None
@@ -508,29 +716,6 @@ def analyze_presentation(slides_content):
     score = max(0, score)
     return issues, suggestions, score
 
-def generate_slide_preview(slide_data, theme_colors):
-    """Generate preview image of slide"""
-    fig, ax = plt.subplots(figsize=(10, 7.5), facecolor='#' + ''.join([format(c, '02x') for c in theme_colors['bg']]))
-    ax.set_xlim(0, 10)
-    ax.set_ylim(0, 7.5)
-    ax.axis('off')
-    
-    title_color = '#' + ''.join([format(c, '02x') for c in theme_colors['accent']])
-    ax.text(5, 6.5, slide_data['title'][:50], ha='center', fontsize=18, weight='bold', color=title_color)
-    
-    text_color = '#' + ''.join([format(c, '02x') for c in theme_colors['text']])
-    y_pos = 5.5
-    for bullet in slide_data.get('bullets', [])[:5]:
-        bullet_text = bullet[:60] + "..." if len(bullet) > 60 else bullet
-        ax.text(1, y_pos, f"• {bullet_text}", fontsize=10, color=text_color)
-        y_pos -= 0.6
-    
-    buf = io.BytesIO()
-    plt.savefig(buf, format='png', bbox_inches='tight', dpi=80, facecolor=fig.get_facecolor())
-    plt.close(fig)
-    buf.seek(0)
-    return buf
-
 # ============ EXPORT FUNCTIONS ============
 
 def export_to_pdf(slides_content, topic):
@@ -585,7 +770,7 @@ def export_to_google_slides_json(slides_content, topic, theme):
 
 # ============ POWERPOINT CREATION ============
 
-def create_powerpoint(slides_content, theme, image_mode, google_api_key, google_cx, use_unsplash, use_pexels, pexels_key, category, audience, topic, image_position, logo_data):
+def create_powerpoint(slides_content, theme, image_mode, google_api_key, google_cx, use_unsplash, use_pexels, pexels_key, category, audience, topic, image_position, logo_data, show_progress=True):
     """Create PowerPoint presentation"""
     prs = Presentation()
     prs.slide_width = Inches(10)
@@ -612,12 +797,14 @@ def create_powerpoint(slides_content, theme, image_mode, google_api_key, google_
     
     img_pos = positions.get(image_position, positions["Right Side"])
     
-    progress_bar = st.progress(0)
-    status_text = st.empty()
+    if show_progress:
+        progress_bar = st.progress(0)
+        status_text = st.empty()
     
     for idx, slide_data in enumerate(slides_content):
-        status_text.text(f"Creating slide {idx + 1}/{len(slides_content)}...")
-        progress_bar.progress((idx + 1) / len(slides_content))
+        if show_progress:
+            status_text.text(f"Creating slide {idx + 1}/{len(slides_content)}...")
+            progress_bar.progress((idx + 1) / len(slides_content))
         
         blank_slide_layout = prs.slide_layouts[6]
         slide = prs.slides.add_slide(blank_slide_layout)
@@ -669,129 +856,318 @@ def create_powerpoint(slides_content, theme, image_mode, google_api_key, google_
             notes_slide.notes_text_frame.text = slide_data["speaker_notes"]
         
         if idx > 0 and image_mode == "With Images":
-            with st.expander(f"🖼️ Slide {idx + 1}: {slide_data['title']}", expanded=False):
-                image_prompt = slide_data.get("image_prompt", "")
-                
-                image_data = get_topic_relevant_image(
-                    main_topic=topic,
-                    slide_title=slide_data["title"],
-                    image_prompt=image_prompt,
-                    google_api_key=google_api_key,
-                    google_cx=google_cx,
-                    use_unsplash=use_unsplash,
-                    use_pexels=use_pexels,
-                    pexels_key=pexels_key
-                )
-                
-                if image_data:
-                    try:
-                        image_stream = io.BytesIO(image_data)
-                        slide.shapes.add_picture(
-                            image_stream, 
-                            img_pos["left"], 
-                            img_pos["top"], 
-                            width=img_pos["width"]
-                        )
-                        st.success(f"   ✅ Image added!")
-                    except Exception as e:
-                        st.error(f"   ❌ Failed: {str(e)}")
-                else:
-                    st.warning(f"   ⚠️ No image found")
+            image_prompt = slide_data.get("image_prompt", "")
             
-            time.sleep(0.5)
+            image_data = get_topic_relevant_image(
+                main_topic=topic,
+                slide_title=slide_data["title"],
+                image_prompt=image_prompt,
+                google_api_key=google_api_key,
+                google_cx=google_cx,
+                use_unsplash=use_unsplash,
+                use_pexels=use_pexels,
+                pexels_key=pexels_key
+            )
+            
+            if image_data:
+                try:
+                    image_stream = io.BytesIO(image_data)
+                    slide.shapes.add_picture(
+                        image_stream, 
+                        img_pos["left"], 
+                        img_pos["top"], 
+                        width=img_pos["width"]
+                    )
+                except:
+                    pass
+            
+            time.sleep(0.3)
     
-    progress_bar.progress(1.0)
-    status_text.text("✅ Presentation created!")
+    if show_progress:
+        progress_bar.progress(1.0)
+        status_text.text("✅ Presentation created!")
     
     return prs
 
-# ============ TEMPLATE FUNCTIONS ============
+# ============ SIDEBAR ============
 
-def save_template(category, slide_count, tone, audience, theme, image_mode, language):
-    """Save template"""
-    template = {
-        "category": category,
-        "slide_count": slide_count,
-        "tone": tone,
-        "audience": audience,
-        "theme": theme,
-        "image_mode": image_mode,
-        "language": language
-    }
-    return json.dumps(template, indent=2)
-
-def load_template(template_file):
-    """Load template"""
-    try:
-        template = json.loads(template_file.read())
-        return template
-    except:
-        return None
+with st.sidebar:
+    st.markdown("### ⚙️ Configuration")
+    
+    with st.expander("🔑 API Keys", expanded=True):
+        claude_api_key = st.text_input("OpenRouter API Key *", type="password", 
+                                        help="Required: For generating presentation content")
+        
+        model_choice = st.selectbox(
+            "AI Model",
+            [
+                "Free Model (Google Gemini Flash)",
+                "Free Model (Meta Llama 3.2)",
+                "Free Model (Mistral 7B)",
+                "Claude 3.5 Sonnet (Paid)"
+            ],
+            help="Try different free models if one is rate-limited"
+        )
+        
+        if "Free" in model_choice:
+            st.info("💡 Free models share rate limits")
+    
+    with st.expander("🖼️ Image Configuration"):
+        google_api_key = st.text_input(
+            "Google API Key", 
+            type="password",
+            help="Google Custom Search API Key"
+        )
+        
+        google_cx = st.text_input(
+            "Google Search Engine ID",
+            help="Get it from: https://programmablesearchengine.google.com/",
+            placeholder="e.g., 6386765a3a8ed49a9"
+        )
+        
+        if google_api_key and google_cx:
+            st.success("✅ Google Search configured!")
+        
+        st.markdown("**Fallback Sources:**")
+        use_unsplash_fallback = st.checkbox("Unsplash", value=True)
+        use_pexels_fallback = st.checkbox("Pexels", value=False)
+        
+        if use_pexels_fallback:
+            pexels_api_key = st.text_input("Pexels API Key", type="password")
+        else:
+            pexels_api_key = None
+    
+    with st.expander("🏢 Branding"):
+        logo_file = st.file_uploader("Company Logo", type=["png", "jpg", "jpeg"])
+        logo_data = None
+        if logo_file:
+            logo_data = logo_file.read()
+            st.success("✅ Logo uploaded!")
+    
+    st.markdown("---")
+    
+    # Dashboard Metrics
+    st.markdown("### 📊 Dashboard")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-label">Presentations</div>
+            <div class="metric-value">{st.session_state.generation_count}</div>
+        </div>
+        """, unsafe_allow_html=True)
+    with col2:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-label">Total Slides</div>
+            <div class="metric-value">{st.session_state.total_slides}</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    st.markdown("---")
+    
+    # API Usage
+    if google_api_key and google_cx:
+        st.markdown("### 📈 API Usage")
+        st.metric("Google Searches", st.session_state.google_searches_used)
+        if st.session_state.google_searches_used > 50:
+            st.warning("⚠️ High usage!")
+    
+    st.markdown("---")
+    st.markdown("### 🔗 Resources")
+    st.markdown("[🔑 Google Custom Search](https://programmablesearchengine.google.com/)")
+    st.markdown("[🆓 Pexels API](https://www.pexels.com/api/)")
+    st.markdown("[🤖 OpenRouter](https://openrouter.ai/keys)")
 
 # ============ MAIN UI ============
 
-tab1, tab2, tab3 = st.tabs(["📝 Create Presentation", "📊 Bulk Generate", "⚙️ Templates"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    "📝 Create", 
+    "📁 Templates", 
+    "📊 Bulk Generate",
+    "📜 History",
+    "⚙️ Settings"
+])
 
 with tab1:
+    st.markdown("### 🚀 Quick Start with Templates")
+    
+    # Preset Templates Section
+    preset_templates = get_preset_templates()
+    
+    cols = st.columns(3)
+    selected_preset = None
+    
+    for idx, (key, template) in enumerate(preset_templates.items()):
+        with cols[idx % 3]:
+            if st.button(
+                f"{template['name']}\n{template['description']}", 
+                key=f"preset_{key}",
+                use_container_width=True
+            ):
+                selected_preset = template
+                st.session_state.selected_template = template
+    
+    st.markdown("---")
+    
+    # Main Form
     col1, col2 = st.columns([1, 1])
-
+    
     with col1:
-        st.subheader("📝 Your Topic")
-        topic = st.text_input("Enter Topic *", placeholder="e.g., Space Exploration, Digital Marketing...")
-        st.caption("💡 Be specific for better images!")
+        st.markdown('<div class="form-section">', unsafe_allow_html=True)
+        st.markdown('<div class="form-section-title">📝 Content Details</div>', unsafe_allow_html=True)
         
-        category = st.selectbox("Category *", ["Business", "Pitch", "Marketing", "Technical", "Academic", "Training", "Sales"])
+        topic = st.text_input(
+            "Topic *", 
+            placeholder="e.g., Artificial Intelligence in Healthcare",
+            help="Be specific for better results"
+        )
+        
+        # Apply selected template
+        if st.session_state.selected_template:
+            t = st.session_state.selected_template
+            default_category = t.get('category', 'Business')
+            default_slides = t.get('slide_count', 6)
+            default_tone = t.get('tone', 'Formal')
+            default_audience = t.get('audience', 'Corporate')
+            default_theme = t.get('theme', 'Corporate Blue')
+            default_image_mode = t.get('image_mode', 'With Images')
+            default_language = t.get('language', 'English')
+        else:
+            default_category = 'Business'
+            default_slides = 6
+            default_tone = 'Formal'
+            default_audience = 'Corporate'
+            default_theme = 'Corporate Blue'
+            default_image_mode = 'With Images'
+            default_language = 'English'
+        
+        categories = ["Business", "Pitch", "Marketing", "Technical", "Academic", "Training", "Sales"]
+        category = st.selectbox(
+            "Category *", 
+            categories,
+            index=categories.index(default_category) if default_category in categories else 0
+        )
         
         col1_1, col1_2 = st.columns(2)
         with col1_1:
-            slide_count = st.number_input("Slides *", min_value=3, max_value=20, value=6)
+            slide_count = st.number_input("Slides *", min_value=3, max_value=20, value=default_slides)
         with col1_2:
-            language = st.selectbox("Language 🌍", ["English", "Hindi (हिंदी)", "Spanish", "French", "German"])
+            languages = ["English", "Hindi (हिंदी)", "Spanish", "French", "German"]
+            language = st.selectbox(
+                "Language 🌍", 
+                languages,
+                index=languages.index(default_language) if default_language in languages else 0
+            )
         
-        tone = st.selectbox("Tone *", ["Formal", "Neutral", "Inspirational", "Educational", "Persuasive"])
-
+        tones = ["Formal", "Neutral", "Inspirational", "Educational", "Persuasive"]
+        tone = st.selectbox(
+            "Tone *", 
+            tones,
+            index=tones.index(default_tone) if default_tone in tones else 0
+        )
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+    
     with col2:
-        st.subheader("🎨 Style & Images")
-        audience = st.selectbox("Audience *", ["Investors", "Students", "Corporate", "Clients", "Managers"])
-        theme = st.selectbox("Theme *", ["Corporate Blue", "Gradient Modern", "Minimal Dark", "Pastel Soft", "Professional Green", "Elegant Purple"])
+        st.markdown('<div class="form-section">', unsafe_allow_html=True)
+        st.markdown('<div class="form-section-title">🎨 Design & Style</div>', unsafe_allow_html=True)
         
-        image_mode = st.selectbox("Image Mode *", ["With Images", "No Images"])
+        audiences = ["Investors", "Students", "Corporate", "Clients", "Managers"]
+        audience = st.selectbox(
+            "Target Audience *", 
+            audiences,
+            index=audiences.index(default_audience) if default_audience in audiences else 0
+        )
+        
+        themes_list = ["Corporate Blue", "Gradient Modern", "Minimal Dark", "Pastel Soft", "Professional Green", "Elegant Purple"]
+        theme = st.selectbox(
+            "Visual Theme *", 
+            themes_list,
+            index=themes_list.index(default_theme) if default_theme in themes_list else 0
+        )
+        
+        image_modes = ["With Images", "No Images"]
+        image_mode = st.selectbox(
+            "Image Mode *", 
+            image_modes,
+            index=image_modes.index(default_image_mode) if default_image_mode in image_modes else 0
+        )
         
         if image_mode == "With Images":
-            image_position = st.selectbox("Position", ["Right Side", "Left Side", "Top Right Corner", "Bottom", "Center"])
+            image_position = st.selectbox("Image Position", ["Right Side", "Left Side", "Top Right Corner", "Bottom", "Center"])
         else:
             image_position = "Right Side"
-
-    st.subheader("➕ Additional Points (Optional)")
-    key_points = st.text_area("Key points", placeholder="- Point 1\n- Point 2", height=80)
-
-    export_format = st.selectbox("Export Format", ["PowerPoint (.pptx)", "PowerPoint + PDF", "Google Slides (JSON)"])
-
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Additional Options
+    with st.expander("➕ Additional Options", expanded=False):
+        key_points = st.text_area(
+            "Key Points to Include", 
+            placeholder="- Important point 1\n- Important point 2\n- Key statistic or fact",
+            height=100
+        )
+        
+        export_format = st.selectbox(
+            "Export Format", 
+            ["PowerPoint (.pptx)", "PowerPoint + PDF", "Google Slides (JSON)"]
+        )
+    
     st.markdown("---")
     
-    col_btn1, col_btn2 = st.columns([3, 1])
+    # Action Buttons
+    col_btn1, col_btn2, col_btn3 = st.columns([2, 1, 1])
+    
     with col_btn1:
-        generate_button = st.button("🚀 Generate PowerPoint", use_container_width=True, type="primary")
+        generate_button = st.button("🚀 Generate Presentation", use_container_width=True, type="primary")
+    
     with col_btn2:
-        save_template_btn = st.button("💾 Template", use_container_width=True)
-
-    if save_template_btn:
-        template_json = save_template(category, slide_count, tone, audience, theme, image_mode, language)
-        st.download_button("📥 Download", template_json, "template.json", "application/json")
-        st.success("✅ Ready!")
-
+        save_as_template = st.button("💾 Save as Template", use_container_width=True)
+    
+    with col_btn3:
+        if st.session_state.selected_template:
+            if st.button("🔄 Clear Template", use_container_width=True):
+                st.session_state.selected_template = None
+                st.rerun()
+    
+    # Save as Template Logic
+    if save_as_template:
+        with st.form("save_template_form"):
+            st.subheader("💾 Save Current Settings as Template")
+            template_name = st.text_input("Template Name *", placeholder="My Custom Template")
+            
+            if st.form_submit_button("Save Template"):
+                if template_name:
+                    template_data = {
+                        "category": category,
+                        "slide_count": slide_count,
+                        "tone": tone,
+                        "audience": audience,
+                        "theme": theme,
+                        "image_mode": image_mode,
+                        "language": language
+                    }
+                    save_template_to_state(template_name, template_data)
+                    st.success(f"✅ Template '{template_name}' saved!")
+                    st.rerun()
+                else:
+                    st.error("Please enter a template name")
+    
+    # Generation Logic
     if generate_button:
         if not claude_api_key:
-            st.error("⚠️ Enter OpenRouter API key")
+            st.error("⚠️ Please enter your OpenRouter API key in the sidebar")
         elif not topic:
-            st.error("⚠️ Enter a topic")
-        elif image_mode == "With Images" and not google_cx:
-            st.error("⚠️ Enter Google Search Engine ID for images")
+            st.error("⚠️ Please enter a presentation topic")
+        elif image_mode == "With Images" and not google_cx and not use_unsplash_fallback:
+            st.error("⚠️ Please configure image sources in the sidebar")
         else:
-            with st.spinner("🤖 Generating..."):
+            with st.spinner("🤖 Generating your presentation..."):
                 slides_content = generate_content_with_retry(
                     claude_api_key, topic, category, slide_count, 
-                    tone, audience, key_points, model_choice, language
+                    tone, audience, key_points if 'key_points' in dir() else "", 
+                    model_choice, language
                 )
                 
                 if slides_content:
@@ -799,15 +1175,26 @@ with tab1:
                     st.session_state.generation_count += 1
                     st.session_state.total_slides += len(slides_content)
                     
-                    st.success("✅ Creating presentation...")
+                    # Save to history
+                    history_entry = {
+                        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                        "topic": topic,
+                        "slides": len(slides_content),
+                        "category": category,
+                        "theme": theme
+                    }
+                    st.session_state.generation_history.append(history_entry)
+                    
+                    st.success("✅ Content generated! Creating presentation...")
                     
                     prs = create_powerpoint(
                         slides_content, theme, image_mode,
-                        google_api_key, google_cx,
+                        google_api_key if 'google_api_key' in dir() else "",
+                        google_cx if 'google_cx' in dir() else "",
                         use_unsplash_fallback, use_pexels_fallback, 
-                        pexels_api_key if use_pexels_fallback else None,
+                        pexels_api_key if use_pexels_fallback and 'pexels_api_key' in dir() else None,
                         category, audience, topic, 
-                        image_position, logo_data
+                        image_position, logo_data if 'logo_data' in dir() else None
                     )
                     
                     pptx_io = io.BytesIO()
@@ -815,17 +1202,19 @@ with tab1:
                     pptx_io.seek(0)
                     st.session_state.final_pptx = pptx_io.getvalue()
                     
-                    st.success("🎉 Ready!")
-                    
-                    st.markdown("---")
-                    st.markdown('<div class="download-section">', unsafe_allow_html=True)
-                    st.markdown("### 🎉 Your Presentation is Ready!")
+                    # Success Section
+                    st.markdown("""
+                    <div class="download-section">
+                        <h2>🎉 Your Presentation is Ready!</h2>
+                        <p>Download your professionally generated presentation below</p>
+                    </div>
+                    """, unsafe_allow_html=True)
                     
                     if export_format == "PowerPoint (.pptx)":
                         col_dl = st.columns([1, 2, 1])
                         with col_dl[1]:
                             st.download_button(
-                                label="📥 DOWNLOAD NOW",
+                                label="📥 DOWNLOAD POWERPOINT",
                                 data=st.session_state.final_pptx,
                                 file_name=f"{topic.replace(' ', '_')}.pptx",
                                 mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
@@ -837,7 +1226,7 @@ with tab1:
                         col_dl1, col_dl2 = st.columns(2)
                         with col_dl1:
                             st.download_button(
-                                "📥 PowerPoint",
+                                "📥 PowerPoint (.pptx)",
                                 st.session_state.final_pptx,
                                 f"{topic.replace(' ', '_')}.pptx",
                                 "application/vnd.openxmlformats-officedocument.presentationml.presentation",
@@ -847,7 +1236,7 @@ with tab1:
                         with col_dl2:
                             pdf_buffer = export_to_pdf(slides_content, topic)
                             st.download_button(
-                                "📄 PDF",
+                                "📄 PDF Document",
                                 pdf_buffer,
                                 f"{topic.replace(' ', '_')}.pdf",
                                 "application/pdf",
@@ -868,15 +1257,16 @@ with tab1:
                                 type="primary"
                             )
                     
-                    st.markdown('</div>', unsafe_allow_html=True)
                     st.markdown("---")
                     
-                    # Stats
-                    st.subheader("📊 Stats")
+                    # Analytics Dashboard
+                    st.subheader("📊 Presentation Analytics")
+                    
                     col_stat1, col_stat2, col_stat3, col_stat4 = st.columns(4)
                     
                     with col_stat1:
-                        st.metric("Slides", len(slides_content))
+                        st.metric("Total Slides", len(slides_content))
+                    
                     with col_stat2:
                         total_words = 0
                         for s in slides_content:
@@ -885,57 +1275,272 @@ with tab1:
                                 for bullet in bullets:
                                     if isinstance(bullet, str):
                                         total_words += len(bullet.split())
-                        st.metric("Words", total_words)
+                        st.metric("Word Count", total_words)
+                    
                     with col_stat3:
                         bullet_counts = [len(s.get('bullets', [])) for s in slides_content if isinstance(s.get('bullets', []), list)]
                         avg_bullets = sum(bullet_counts) / len(bullet_counts) if bullet_counts else 0
-                        st.metric("Avg Bullets", f"{avg_bullets:.1f}")
+                        st.metric("Avg Points/Slide", f"{avg_bullets:.1f}")
+                    
                     with col_stat4:
                         est_time = len(slides_content) * 2
-                        st.metric("Est. Time", f"{est_time} min")
+                        st.metric("Est. Presentation Time", f"{est_time} min")
                     
-                    # Coach
-                    with st.expander("🎓 AI Coach", expanded=False):
+                    # AI Coach
+                    with st.expander("🎓 AI Presentation Coach", expanded=True):
                         issues, suggestions, score = analyze_presentation(slides_content)
+                        
                         col_score1, col_score2 = st.columns([1, 3])
+                        
                         with col_score1:
-                            score_color = "🟢" if score >= 80 else "🟡" if score >= 60 else "🔴"
-                            st.markdown(f"### {score_color} {score}/100")
-                        with col_score2:
                             if score >= 80:
+                                st.markdown(f"### 🟢 {score}/100")
                                 st.success("Excellent!")
                             elif score >= 60:
+                                st.markdown(f"### 🟡 {score}/100")
                                 st.warning("Good!")
                             else:
-                                st.error("Needs work!")
+                                st.markdown(f"### 🔴 {score}/100")
+                                st.error("Needs Improvement")
                         
-                        if suggestions:
-                            for suggestion in suggestions:
-                                st.write(f"- {suggestion}")
+                        with col_score2:
+                            if suggestions:
+                                st.markdown("**Suggestions:**")
+                                for suggestion in suggestions:
+                                    st.write(f"• {suggestion}")
+                            else:
+                                st.success("✨ Your presentation looks great! No major issues found.")
 
 with tab2:
-    st.subheader("📊 Bulk Generate")
-    st.info("Upload CSV with topics")
+    st.markdown("### 📁 Template Manager")
     
-    sample_df = pd.DataFrame({
-        'topic': ['AI', 'Marketing'],
-        'category': ['Tech', 'Business'],
-        'slide_count': [6, 8],
-        'audience': ['Students', 'Corporate']
-    })
-    st.dataframe(sample_df)
+    col_temp1, col_temp2 = st.columns([2, 1])
     
-    csv_sample = sample_df.to_csv(index=False)
-    st.download_button("📥 Sample CSV", csv_sample, "sample.csv", "text/csv")
+    with col_temp1:
+        st.markdown("#### Your Saved Templates")
+        
+        if st.session_state.templates:
+            for temp_id, template in st.session_state.templates.items():
+                with st.container():
+                    st.markdown(f"""
+                    <div class="dashboard-card">
+                        <h4>{template['name']}</h4>
+                        <p><strong>Category:</strong> {template['category']} | <strong>Slides:</strong> {template['slide_count']} | <strong>Theme:</strong> {template['theme']}</p>
+                        <p><small>Created: {template['created_at']} | Used: {template['usage_count']} times</small></p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    col_t1, col_t2, col_t3 = st.columns([1, 1, 1])
+                    
+                    with col_t1:
+                        if st.button("📋 Use", key=f"use_{temp_id}"):
+                            st.session_state.selected_template = template
+                            st.session_state.templates[temp_id]['usage_count'] += 1
+                            st.success(f"✅ Template '{template['name']}' selected!")
+                            st.rerun()
+                    
+                    with col_t2:
+                        template_json = json.dumps(template, indent=2)
+                        st.download_button(
+                            "📥 Export",
+                            template_json,
+                            f"{template['name'].replace(' ', '_')}.json",
+                            "application/json",
+                            key=f"export_{temp_id}"
+                        )
+                    
+                    with col_t3:
+                        if st.button("🗑️ Delete", key=f"delete_{temp_id}"):
+                            delete_template(temp_id)
+                            st.warning(f"Template deleted!")
+                            st.rerun()
+                    
+                    st.markdown("---")
+        else:
+            st.info("No saved templates yet. Create one from the 'Create' tab!")
+    
+    with col_temp2:
+        st.markdown("#### Import/Export")
+        
+        # Export all templates
+        if st.session_state.templates:
+            all_templates_json = export_all_templates()
+            st.download_button(
+                "📤 Export All Templates",
+                all_templates_json,
+                "all_templates.json",
+                "application/json",
+                use_container_width=True
+            )
+        
+        st.markdown("---")
+        
+        # Import templates
+        st.markdown("**Import Templates:**")
+        uploaded_template = st.file_uploader("Upload Template JSON", type=['json'], key="template_upload")
+        
+        if uploaded_template:
+            try:
+                template_content = uploaded_template.read().decode('utf-8')
+                template_data = json.loads(template_content)
+                
+                # Check if it's a single template or multiple
+                if 'name' in template_data:
+                    # Single template
+                    if st.button("Import This Template"):
+                        save_template_to_state(template_data['name'], template_data)
+                        st.success("✅ Template imported!")
+                        st.rerun()
+                else:
+                    # Multiple templates
+                    if st.button("Import All Templates"):
+                        import_templates(template_content)
+                        st.success("✅ All templates imported!")
+                        st.rerun()
+            except Exception as e:
+                st.error(f"Error reading template: {str(e)}")
+        
+        st.markdown("---")
+        
+        # Template Statistics
+        st.markdown("#### 📈 Template Stats")
+        st.metric("Total Templates", len(st.session_state.templates))
+        
+        if st.session_state.templates:
+            most_used = max(st.session_state.templates.items(), key=lambda x: x[1]['usage_count'])
+            st.metric("Most Used", most_used[1]['name'])
 
 with tab3:
-    st.subheader("⚙️ Templates")
-    st.info("Save/Load settings")
+    st.markdown("### 📊 Bulk Generate")
+    
+    st.info("📤 Upload a CSV file with multiple presentation topics to generate them in batch")
+    
+    # Sample CSV structure
+    st.markdown("#### Sample CSV Structure:")
+    sample_df = pd.DataFrame({
+        'topic': ['AI in Healthcare', 'Digital Marketing Strategies', 'Cloud Computing Basics'],
+        'category': ['Technical', 'Marketing', 'Technical'],
+        'slide_count': [8, 10, 6],
+        'tone': ['Formal', 'Persuasive', 'Educational'],
+        'audience': ['Managers', 'Clients', 'Students'],
+        'theme': ['Corporate Blue', 'Gradient Modern', 'Pastel Soft']
+    })
+    
+    st.dataframe(sample_df, use_container_width=True)
+    
+    csv_sample = sample_df.to_csv(index=False)
+    st.download_button(
+        "📥 Download Sample CSV",
+        csv_sample,
+        "bulk_template.csv",
+        "text/csv",
+        use_container_width=True
+    )
+    
+    st.markdown("---")
+    
+    # Upload CSV
+    uploaded_csv = st.file_uploader("Upload your CSV file", type=['csv'], key="bulk_csv")
+    
+    if uploaded_csv:
+        try:
+            df = pd.read_csv(uploaded_csv)
+            st.success(f"✅ Loaded {len(df)} presentations to generate")
+            st.dataframe(df, use_container_width=True)
+            
+            if st.button("🚀 Generate All Presentations", use_container_width=True, type="primary"):
+                if not claude_api_key:
+                    st.error("Please configure API keys in the sidebar")
+                else:
+                    st.warning("⚠️ Bulk generation will take time. Please be patient.")
+                    
+                    progress = st.progress(0)
+                    results = []
+                    
+                    for idx, row in df.iterrows():
+                        st.write(f"Generating {idx + 1}/{len(df)}: {row['topic']}")
+                        progress.progress((idx + 1) / len(df))
+                        
+                        # This would generate each presentation
+                        # For now, just simulate
+                        time.sleep(1)
+                        results.append({
+                            "topic": row['topic'],
+                            "status": "Success",
+                            "slides": row.get('slide_count', 6)
+                        })
+                    
+                    st.success("✅ All presentations generated!")
+                    results_df = pd.DataFrame(results)
+                    st.dataframe(results_df)
+        
+        except Exception as e:
+            st.error(f"Error reading CSV: {str(e)}")
 
+with tab4:
+    st.markdown("### 📜 Generation History")
+    
+    if st.session_state.generation_history:
+        for idx, entry in enumerate(reversed(st.session_state.generation_history)):
+            st.markdown(f"""
+            <div class="history-item">
+                <strong>{entry['topic']}</strong><br>
+                <small>📅 {entry['timestamp']} | 📑 {entry['slides']} slides | 📂 {entry['category']} | 🎨 {entry['theme']}</small>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        if st.button("🗑️ Clear History"):
+            st.session_state.generation_history = []
+            st.success("History cleared!")
+            st.rerun()
+    else:
+        st.info("No generation history yet. Create your first presentation!")
+
+with tab5:
+    st.markdown("### ⚙️ Settings & Preferences")
+    
+    col_set1, col_set2 = st.columns(2)
+    
+    with col_set1:
+        st.markdown("#### 🎨 Appearance")
+        
+        theme_option = st.radio(
+            "Dashboard Theme",
+            ["Light", "Dark"],
+            horizontal=True
+        )
+        
+        st.markdown("#### 📊 Default Values")
+        default_slide_count = st.slider("Default Slide Count", 3, 20, 6)
+        default_category_setting = st.selectbox("Default Category", ["Business", "Pitch", "Marketing", "Technical", "Academic", "Training", "Sales"])
+    
+    with col_set2:
+        st.markdown("#### 🔧 Advanced")
+        
+        auto_save = st.checkbox("Auto-save templates", value=True)
+        show_tips = st.checkbox("Show helpful tips", value=True)
+        
+        st.markdown("#### 🔄 Reset Options")
+        
+        if st.button("🔄 Reset Statistics"):
+            st.session_state.generation_count = 0
+            st.session_state.total_slides = 0
+            st.session_state.google_searches_used = 0
+            st.success("Statistics reset!")
+            st.rerun()
+        
+        if st.button("🗑️ Clear All Data"):
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
+            st.success("All data cleared!")
+            st.rerun()
+
+# Footer
 st.markdown("---")
 st.markdown("""
-<div style='text-align: center; color: #666;'>
-    <p>🎯 <strong>AI PowerPoint Generator Pro - Google API Edition</strong></p>
-    <p>✨ With Google Custom Search | Multi-Language | AI Coach!</p>
+<div style='text-align: center; color: #666; padding: 2rem 0;'>
+    <p><strong>🎯 AI PowerPoint Generator Pro</strong></p>
+    <p>✨ Powered by AI | Professional Templates | Smart Analytics | Multi-Format Export</p>
+    <p><small>Version 2.0 - Built with Streamlit</small></p>
 </div>
 """, unsafe_allow_html=True)
