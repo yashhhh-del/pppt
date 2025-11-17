@@ -565,6 +565,85 @@ def get_topic_relevant_image(main_topic, slide_title, image_prompt, google_api_k
 
 # ============ CONTENT GENERATION ============
 
+def repair_truncated_json(json_text):
+    """Attempt to repair truncated JSON from AI response"""
+    text = json_text.strip()
+    
+    # Remove markdown code blocks if present
+    if text.startswith("```json"):
+        text = text[7:]
+    if text.startswith("```"):
+        text = text[3:]
+    if text.endswith("```"):
+        text = text[:-3]
+    text = text.strip()
+    
+    # Try parsing as-is first
+    try:
+        data = json.loads(text)
+        return data
+    except json.JSONDecodeError:
+        pass
+    
+    # Count brackets to see what's missing
+    open_braces = text.count('{')
+    close_braces = text.count('}')
+    open_brackets = text.count('[')
+    close_brackets = text.count(']')
+    
+    # Try to find the last complete slide
+    slides = []
+    
+    # Find "slides": [ pattern
+    slides_start = text.find('"slides"')
+    if slides_start == -1:
+        return None
+    
+    # Find the opening bracket of slides array
+    bracket_pos = text.find('[', slides_start)
+    if bracket_pos == -1:
+        return None
+    
+    # Extract individual slide objects
+    current_pos = bracket_pos + 1
+    brace_count = 0
+    slide_start = -1
+    
+    while current_pos < len(text):
+        char = text[current_pos]
+        
+        if char == '{' and brace_count == 0:
+            slide_start = current_pos
+            brace_count = 1
+        elif char == '{':
+            brace_count += 1
+        elif char == '}':
+            brace_count -= 1
+            if brace_count == 0 and slide_start != -1:
+                # Found a complete slide object
+                slide_text = text[slide_start:current_pos + 1]
+                try:
+                    slide_obj = json.loads(slide_text)
+                    # Ensure required fields exist
+                    if 'title' in slide_obj:
+                        if 'bullets' not in slide_obj:
+                            slide_obj['bullets'] = []
+                        if 'image_prompt' not in slide_obj:
+                            slide_obj['image_prompt'] = slide_obj['title']
+                        if 'speaker_notes' not in slide_obj:
+                            slide_obj['speaker_notes'] = ""
+                        slides.append(slide_obj)
+                except:
+                    pass
+                slide_start = -1
+        
+        current_pos += 1
+    
+    if slides:
+        return {"slides": slides}
+    
+    return None
+
 def generate_content_with_claude(api_key, topic, category, slide_count, tone, audience, key_points, model_choice, language):
     """Generate presentation content using AI"""
     try:
@@ -577,45 +656,31 @@ def generate_content_with_claude(api_key, topic, category, slide_count, tone, au
         else:
             model = "anthropic/claude-3.5-sonnet"
         
-        calculated_tokens = min(slide_count * 200 + 300, 2000)
+        # Increase token limit significantly to avoid truncation
+        calculated_tokens = min(slide_count * 350 + 500, 4000)
         
         language_instruction = f"Generate ALL content in {language} language." if language != "English" else ""
         
+        # Simplified prompt to reduce response size
         prompt = f"""{language_instruction}
-You are an expert presentation creator. Generate a PowerPoint structure about: {topic}
+Create a {slide_count}-slide presentation about: {topic}
 
-Category: {category}
-Slides: {slide_count}
-Tone: {tone}
-Audience: {audience}
-Key Points: {key_points if key_points else "None"}
+Category: {category} | Tone: {tone} | Audience: {audience}
+{f"Include: {key_points}" if key_points else ""}
 
-Return ONLY valid JSON in this format:
-{{
-  "slides": [
-    {{
-      "title": "Presentation Title",
-      "bullets": [],
-      "image_prompt": "{topic} title image",
-      "speaker_notes": "Opening remarks and introduction"
-    }},
-    {{
-      "title": "Slide Title",
-      "bullets": ["Point 1", "Point 2", "Point 3"],
-      "image_prompt": "specific image description related to {topic}",
-      "speaker_notes": "What to explain during this slide"
-    }}
-  ]
-}}
+Return ONLY this JSON format (no other text):
+{{"slides": [
+  {{"title": "Title", "bullets": [], "image_prompt": "image desc", "speaker_notes": "notes"}},
+  {{"title": "Slide 2", "bullets": ["point1", "point2", "point3"], "image_prompt": "image desc", "speaker_notes": "notes"}}
+]}}
 
-CRITICAL REQUIREMENTS:
-1. image_prompt must be specific to {topic}
-2. Include detailed speaker_notes for each slide
-3. Make content appropriate for {audience}
-4. Total slides: exactly {slide_count}
-5. ALL text content must be in {language}
-
-Return ONLY JSON, no markdown."""
+IMPORTANT:
+- Keep bullets SHORT (max 10 words each)
+- Keep speaker_notes BRIEF (max 20 words)
+- Keep image_prompt SHORT (max 5 words)
+- Use simple words, no special characters
+- Total {slide_count} slides exactly
+- Return ONLY valid JSON"""
 
         response = requests.post(
             "https://openrouter.ai/api/v1/chat/completions",
@@ -628,24 +693,33 @@ Return ONLY JSON, no markdown."""
                 "max_tokens": calculated_tokens,
                 "messages": [{"role": "user", "content": prompt}]
             },
-            timeout=30
+            timeout=60
         )
         
         if response.status_code == 200:
             data = response.json()
             content_text = data["choices"][0]["message"]["content"]
             
-            content_text = content_text.strip()
-            if content_text.startswith("```json"):
-                content_text = content_text[7:]
-            if content_text.startswith("```"):
-                content_text = content_text[3:]
-            if content_text.endswith("```"):
-                content_text = content_text[:-3]
-            content_text = content_text.strip()
+            # First try to repair/parse the JSON
+            slides_data = repair_truncated_json(content_text)
             
-            slides_data = json.loads(content_text)
-            return slides_data["slides"]
+            if slides_data and "slides" in slides_data:
+                slides = slides_data["slides"]
+                
+                # Validate we have slides
+                if not slides:
+                    st.error("No slides were generated. Please try again.")
+                    return None
+                
+                # Warn if truncated
+                if len(slides) < slide_count:
+                    st.warning(f"⚠️ Only {len(slides)} slides generated (requested {slide_count}). The AI response was truncated. Try reducing slide count or using a paid model.")
+                
+                return slides
+            else:
+                st.error("Failed to parse AI response. The model may have returned invalid JSON.")
+                st.code(content_text[:500] + "..." if len(content_text) > 500 else content_text)
+                return None
         else:
             if response.status_code == 429:
                 st.error(f"⏱️ Rate Limit: Model is temporarily unavailable")
@@ -659,6 +733,7 @@ Return ONLY JSON, no markdown."""
             
     except json.JSONDecodeError as e:
         st.error(f"JSON parsing error: {str(e)}")
+        st.info("💡 **Tip:** Try reducing the number of slides or switching to a different AI model.")
         return None
     except Exception as e:
         if "Rate limit" in str(e):
