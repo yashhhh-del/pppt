@@ -644,13 +644,25 @@ def repair_truncated_json(json_text):
     
     return None
 
-def generate_content_with_claude(api_key, topic, category, slide_count, tone, audience, key_points, model_choice, language, grok_api_key=None):
+def generate_content_with_claude(api_key, topic, category, slide_count, tone, audience, key_points, model_choice, language, grok_api_key=None, groq_api_key=None):
     """Generate presentation content using AI"""
     try:
         # Determine which API to use
         use_grok_api = "Grok" in model_choice and grok_api_key
+        use_groq_api = "Groq" in model_choice and groq_api_key
         
-        if use_grok_api:
+        if use_groq_api:
+            # Groq API (FREE and FAST)
+            if "Llama 3.3" in model_choice:
+                model = "llama-3.3-70b-versatile"
+            else:  # Mixtral
+                model = "mixtral-8x7b-32768"
+            api_url = "https://api.groq.com/openai/v1/chat/completions"
+            headers = {
+                "Authorization": f"Bearer {groq_api_key.strip()}",
+                "Content-Type": "application/json",
+            }
+        elif use_grok_api:
             if "Grok-2" in model_choice:
                 model = "grok-2-latest"
             else:  # Grok-Beta
@@ -742,6 +754,24 @@ IMPORTANT:
                 st.error(f"⏱️ Rate Limit: Model is temporarily unavailable")
                 st.info("💡 **Solutions:**\n- Wait 30-60 seconds and try again\n- Switch to a different model above\n- Check your API quota")
                 raise Exception("Rate limit - retry needed")
+            elif response.status_code == 403:
+                error_data = response.json() if response.text else {}
+                error_msg = error_data.get('error', response.text)
+                
+                if "credit" in error_msg.lower() or "permission" in error_msg.lower():
+                    st.error("💳 **Grok API Credits Required**")
+                    st.warning(f"""
+                    **Your xAI account needs credits to use Grok API.**
+                    
+                    **Options:**
+                    1. 🆓 **Use Free Models Instead** - Select Google Gemini, Llama, or Mistral (no credits needed)
+                    2. 💰 **Purchase Grok Credits** - Visit your xAI console to buy credits
+                    3. 🔄 **Try OpenRouter** - Use OpenRouter API key with Claude 3.5 Sonnet
+                    
+                    **Recommended:** Switch to a free model in the sidebar dropdown.
+                    """)
+                else:
+                    st.error(f"🚫 Access Denied: {error_msg}")
             elif response.status_code == 402:
                 st.error("💳 Insufficient credits! Reduce slides or add credits.")
             elif response.status_code == 401:
@@ -760,11 +790,11 @@ IMPORTANT:
         st.error(f"Error: {str(e)}")
         return None
 
-def generate_content_with_retry(api_key, topic, category, slide_count, tone, audience, key_points, model_choice, language, grok_api_key=None, max_retries=3):
+def generate_content_with_retry(api_key, topic, category, slide_count, tone, audience, key_points, model_choice, language, grok_api_key=None, groq_api_key=None, max_retries=3):
     """Generate content with automatic retry on rate limit"""
     for attempt in range(max_retries):
         try:
-            result = generate_content_with_claude(api_key, topic, category, slide_count, tone, audience, key_points, model_choice, language, grok_api_key)
+            result = generate_content_with_claude(api_key, topic, category, slide_count, tone, audience, key_points, model_choice, language, grok_api_key, groq_api_key)
             if result:
                 return result
         except Exception as e:
@@ -998,12 +1028,29 @@ with st.sidebar:
                 "Free Model (Google Gemini Flash)",
                 "Free Model (Meta Llama 3.2)",
                 "Free Model (Mistral 7B)",
-                "Grok-2 (xAI)",
-                "Grok-Beta (xAI Free)",
+                "Groq (Llama 3.3 70B) - FREE & FAST",
+                "Groq (Mixtral 8x7B) - FREE",
+                "Grok-2 (xAI - Paid)",
+                "Grok-Beta (xAI - Paid)",
                 "Claude 3.5 Sonnet (Paid)"
             ],
             help="Try different models if one is rate-limited"
         )
+        
+        # Show Groq API key input (FREE alternative)
+        groq_api_key = None
+        if "Groq" in model_choice:
+            groq_api_key = st.text_input(
+                "Groq API Key (FREE)", 
+                type="password",
+                help="Get FREE API key from https://console.groq.com/"
+            )
+            if groq_api_key:
+                st.success("✅ Groq API configured!")
+            else:
+                st.warning("⚠️ Enter Groq API key")
+            st.markdown("🆓 [Get FREE Groq API Key](https://console.groq.com/keys)")
+            st.info("💡 Groq is FREE and FAST! Great alternative to paid APIs.")
         
         # Show Grok API key input if Grok is selected
         grok_api_key = None
@@ -1018,6 +1065,7 @@ with st.sidebar:
             else:
                 st.warning("⚠️ Enter Grok API key for xAI models")
             st.markdown("[🔗 Get Grok API Key](https://console.x.ai/)")
+            st.warning("⚠️ Grok requires purchased credits. Consider using FREE Groq instead!")
         
         if "Free" in model_choice:
             st.info("💡 Free models share rate limits")
@@ -1270,7 +1318,12 @@ with tab1:
         has_valid_api = False
         error_message = ""
         
-        if "Grok" in model_choice:
+        if "Groq" in model_choice:
+            if groq_api_key:
+                has_valid_api = True
+            else:
+                error_message = "⚠️ Please enter your Groq API key in the sidebar (it's FREE!)"
+        elif "Grok" in model_choice:
             if grok_api_key:
                 has_valid_api = True
             else:
@@ -1293,7 +1346,8 @@ with tab1:
                     claude_api_key, topic, category, slide_count, 
                     tone, audience, key_points if 'key_points' in dir() else "", 
                     model_choice, language, 
-                    grok_api_key=grok_api_key if 'grok_api_key' in dir() else None
+                    grok_api_key=grok_api_key if 'grok_api_key' in dir() else None,
+                    groq_api_key=groq_api_key if 'groq_api_key' in dir() else None
                 )
                 
                 if slides_content:
